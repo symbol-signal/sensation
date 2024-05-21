@@ -1,0 +1,23 @@
+[build-system]
+requires = ["flit_core >=3.2,<4"]
+build-backend = "flit_core.buildapi"
+
+[project]
+name = "sensation"
+authors = [{name = "Stan Svec", email = "dev@stansvec.com"}]
+readme = "README.md"
+license = {file = "LICENSE"}
+classifiers = ["License :: OSI Approved :: MIT License"]
+requires-python = ">=3.9"
+dynamic = ["version", "description"]
+dependencies = [
+    "pyserial>=3.5",
+]
+
+[tool.flit.module]
+name = "sensation"
+
+pythonpath = "src"
+
+[project.urls]
+Home = "https://github.com/symbol-signal/sensation"
