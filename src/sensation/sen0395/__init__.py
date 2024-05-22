@@ -151,6 +151,9 @@ class CommandResponse:
     def __str__(self):
         return f"outputs={self.outputs} result={self.command_result.value}"
 
+    def __repr__(self):
+        return f"CommandResponse(outputs={self.outputs})"
+
 
 @dataclass
 class ConfigChainResponse:
@@ -350,6 +353,7 @@ class Sensor:
         :param cmd: The command string to be sent to the device.
         """
         cmd_str = cmd.value + (" " if params else "") + " ".join(map(str, params))
+        self.serial.reset_input_buffer()  # Clear the input buffer to remove any stale data
         self.serial.write((cmd_str + '\n').encode('utf-8'))
         self.serial.flush()
 
@@ -368,7 +372,7 @@ class Sensor:
                 break
 
         if not confirmed:
-            log.warning(f"[command_unconfirmed] sensor=[{self.sensor_id}] command=[{cmd_str}] outputs=[{outputs}]")
+            log.warning(f"[command_unconfirmed] sensor=[{self.sensor_id}] command=[{cmd_str}] outputs={outputs}")
             return CommandResponse(None)
 
         resp = CommandResponse(outputs)
@@ -417,7 +421,7 @@ class Sensor:
         return self.send_command(Command.DETECTION_RANGE_CONFIG, *([-1] + params))
 
     def configure_latency(self, detection_delay, disappearance_delay) -> ConfigChainResponse:
-        return self.configure(Command.LATENCY_CONFIG, detection_delay, disappearance_delay)
+        return self.configure(Command.LATENCY_CONFIG, -1, detection_delay, disappearance_delay)
 
     def configure_detection_range(self, /, seg_a, seg_b=None, seg_c=None, seg_d=None):
         params = [param for seg in [seg_a, seg_b, seg_c, seg_d] if seg is not None for param in seg]
