@@ -1,3 +1,24 @@
+"""
+Basic usage example:
+
+```pycon
+>>> from serial import Serial
+>>> from sensation.sen0395 import *
+>>> sensor = Sensor("sensor_name",  Serial('/dev/ttyAMA0', 115200, timeout=1))
+>>> sensor.status()
+SensorStatus(sensor_id=SensorId(sensor_type=<SensorType.SEN0395: 'sen0395'>, sensor_name='sensor_name'), port='/dev/ttyAMA0', timeout=1, is_reading=False, is_scanning=False)
+>>> sensor.set_latency(15, 35)
+CommandResponse(outputs=[outputLatency -1 15 35, Done])
+>>> sensor.save_configuration()
+CommandResponse(outputs=[saveCfg 0x45670123 0xCDEF89AB 0x956128C6 0xDF54AC89, save cfg complete, Done])
+>>> sensor.start_scanning()
+CommandResponse(outputs=[sensorStart, Done])
+>>> sensor.status()
+SensorStatus(sensor_id=SensorId(sensor_type=<SensorType.SEN0395: 'sen0395'>, sensor_name='sensor_name'), port='/dev/ttyAMA0', timeout=1, is_reading=False, is_scanning=True)
+```
+
+"""
+
 import logging
 import re
 import time
@@ -7,7 +28,7 @@ from functools import wraps
 from threading import RLock, Thread
 from typing import List, Callable, Optional, Dict
 
-from sensation.common import SensorId
+from sensation.common import SensorId, SensorType
 
 log = logging.getLogger(__name__)
 
@@ -262,8 +283,8 @@ def range_segments(params):
 
 class Sensor:
 
-    def __init__(self, sensor_id, serial_con):
-        self.sensor_id = sensor_id
+    def __init__(self, sensor_name, serial_con):
+        self.sensor_id = SensorId(SensorType.SEN0395, sensor_name)
         self.serial = serial_con
         self.handlers: List[Callable[[Output], None]] = []
         self._lock = RLock()
@@ -412,7 +433,7 @@ class Sensor:
         return self.send_command(Command.SENSOR_STOP)
 
     def set_latency(self, detection_delay, disappearance_delay) -> CommandResponse:
-        return self.send_command(Command.LATENCY_CONFIG, detection_delay, disappearance_delay)
+        return self.send_command(Command.LATENCY_CONFIG, -1, detection_delay, disappearance_delay)
 
     def set_detection_range(self, /, seg_a, seg_b=None, seg_c=None, seg_d=None):
         params = [param for seg in [seg_a, seg_b, seg_c, seg_d] if seg is not None for param in seg]
@@ -434,3 +455,4 @@ class Sensor:
 
     def close(self):
         self.stop_reading()
+        self.serial.close()
