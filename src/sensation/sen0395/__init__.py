@@ -1,29 +1,18 @@
 """
-Basic usage example:
+Module for interacting with the DFRobot SEN0395 24GHz millimeter-wave radar sensor.
 
-```python
-from serial import Serial
-from sensation.sen0395 import *
+This module provides a high-level interface to control and communicate with the SEN0395 sensor
+using serial communication. It allows configuring the sensor's settings, reading presence detection data,
+and handling sensor events.
 
-sensor = Sensor("sensor_name",  Serial('/dev/ttyAMA0', 115200, timeout=1))
+Example usage:
+    from serial import Serial
+    from sensation.sen0395 import Sensor
 
-sensor.status()
-# SensorStatus(sensor_id=SensorId(sensor_type=<SensorType.SEN0395: 'sen0395'>, sensor_name='sensor_name'), port='/dev/ttyAMA0', timeout=1, is_reading=False, is_scanning=False)
-
-sensor.set_latency(15, 35)
-# CommandResponse(outputs=[outputLatency -1 15 35, Done])
-
-sensor.save_configuration()
-# CommandResponse(outputs=[saveCfg 0x45670123 0xCDEF89AB 0x956128C6 0xDF54AC89, save cfg complete, Done])
-
-sensor.start_scanning()
-# CommandResponse(outputs=[sensorStart, Done])
-
-sensor.status()
-#SensorStatus(sensor_id=SensorId(sensor_type=<SensorType.SEN0395: 'sen0395'>, sensor_name='sensor_name'), port='/dev/ttyAMA0', timeout=1, is_reading=False, is_scanning=True)
-```
-
-
+    sensor = Sensor("sensor_name", Serial('/dev/ttyAMA0', 115200, timeout=1))
+    sensor.start_scanning()
+    presence = sensor.read_presence()
+    sensor.close()
 """
 
 import logging
@@ -45,6 +34,7 @@ PRESENCE_PATTERN = r'^\$JYBSS,([01])'
 
 
 class Command(Enum):
+    """Enumeration of supported sensor commands."""
     SENSOR_START = ("sensorStart", False)
     SENSOR_STOP = ("sensorStop", False)
     RESET_SYSTEM = ("resetSystem", False)
@@ -61,6 +51,15 @@ class Command(Enum):
 
     @classmethod
     def from_value(cls, value):
+        """
+        Get the `Command` enum member based on its command value.
+
+        Args:
+            value (str): The string representation of the command.
+
+        Returns:
+            Command: The corresponding `Command` enum member.
+        """
         for member in cls:
             if member.value == value:
                 return member
@@ -71,6 +70,7 @@ class Command(Enum):
 
 
 class CommandResult(Enum):
+    """Enumeration of command execution results."""
     DONE = 'Done'
     NOT_APPLICABLE = 'N/A'
     ERROR = 'Error'
@@ -82,6 +82,21 @@ class CommandResult(Enum):
 
 
 def is_present(output) -> Optional[bool]:
+    """
+    Parse sensor presence output value.
+    Possible values:
+     - `$JYBSS,0, , , *` => no presence
+     - `$JYBSS,1, , , *` => presence
+
+    Args:
+        output (str): The sensor presence output string.
+
+    Returns:
+        Optional[bool]:
+            `True` if presence is detected,
+            `False` if no presence,
+            `None` if the value is not the presence output.
+    """
     presence_match = re.match(PRESENCE_PATTERN, output)
     if not presence_match:
         return None
@@ -90,6 +105,15 @@ def is_present(output) -> Optional[bool]:
 
 
 def parse_command_result(output) -> CommandResult:
+    """
+    Parse the command execution result from the sensor output.
+
+    Args:
+        output (str): The sensor output string.
+
+    Returns:
+        CommandResult: The command execution result or `CommandResult.UNKNOWN` if not a command result.
+    """
     if not output:
         return CommandResult.MISSING
     try:
@@ -99,6 +123,15 @@ def parse_command_result(output) -> CommandResult:
 
 
 def parse_command(output) -> Command:
+    """
+    Parse the command from the sensor output.
+
+    Args:
+        output (str): The sensor output string.
+
+    Returns:
+        Command: The parsed command or `Command.NONE` if not a command.
+    """
     for c in Command:
         for o in output.split():
             if o == c.value:
@@ -108,6 +141,17 @@ def parse_command(output) -> Command:
 
 
 class Output:
+    """
+    Represents a parsed sensor output line. This helps to determine the type of the output.
+
+    Attributes:
+        output (str): The raw sensor output line string.
+        presence (Optional[bool]): Indicates presence detection (True/False) or None if not a presence info.
+        command_result (CommandResult): The result of the command execution or `CommandResult.UNKNOWN`.
+        command (Command): The parsed command or `Command.NONE`.
+        command_params (tuple): The parameters of the parsed command or empty tuple.
+        message (Optional[str]): Additional message in the output, if any.
+    """
 
     def __init__(self, value):
         self.output = value
@@ -128,17 +172,38 @@ class Output:
 
 
 class CommandResponse:
+    """
+    Represents the full (multi-line) response to a sensor command provided as a list of `Output` instances.
+
+    Attributes:
+        outputs (List[Output]): The list of parsed sensor outputs.
+    """
 
     def __init__(self, outputs):
         self.outputs = outputs or []
 
     def serialize(self) -> Dict:
+        """
+        Serialize the CommandResponse object to a dictionary.
+
+        Returns:
+            Dict: The serialized representation of the CommandResponse.
+        """
         return {
             "outputs": [output.output for output in self.outputs],
         }
 
     @classmethod
     def deserialize(cls, data: Dict):
+        """
+        Deserialize a dictionary to a CommandResponse object.
+
+        Args:
+            data (Dict): The serialized data.
+
+        Returns:
+            CommandResponse: The deserialized CommandResponse object.
+        """
         outputs = [Output(output) for output in data["outputs"]]
         return cls(outputs=outputs)
 
@@ -147,6 +212,12 @@ class CommandResponse:
 
     @property
     def command_echo(self) -> Optional[str]:
+        """
+        Get the echoed command from the sensor command response.
+
+        Returns:
+            Optional[str]: The echoed command string, or None if not found.
+        """
         if not self.outputs:
             return None
 
@@ -154,6 +225,12 @@ class CommandResponse:
 
     @property
     def command(self) -> Command:
+        """
+        Get the parsed command from the sensor command response.
+
+        Returns:
+            Command: The parsed command.
+        """
         if not self.outputs:
             return Command.NONE
 
@@ -161,6 +238,12 @@ class CommandResponse:
 
     @property
     def message(self) -> Optional[str]:
+        """
+        Get the additional message from the sensor command response.
+
+        Returns:
+            Optional[str]: The additional message, or None if not found.
+        """
         if len(self.outputs) < 3:
             return None
 
@@ -168,6 +251,12 @@ class CommandResponse:
 
     @property
     def command_result(self) -> CommandResult:
+        """
+        Get the command execution result from the sensor command response.
+
+        Returns:
+            CommandResult: The command execution result.
+        """
         if len(self.outputs) < 2:
             return CommandResult.MISSING
 
@@ -185,12 +274,30 @@ class CommandResponse:
 
 @dataclass
 class ConfigChainResponse:
+    """
+    Represents a series of command responses to a configuration command chain.
+
+    To successfully store a new configuration the sensor must be stopped and the "save configuration" command
+    must follow the configuration change.
+
+    Attributes:
+        pause_cmd (Optional[CommandResponse]): The response to the pause command, if applicable (sensor was scanning).
+        cfg_cmd (Optional[CommandResponse]): The response to the configuration command.
+        save_cmd (Optional[CommandResponse]): The response to the save configuration command.
+        resume_cmd (Optional[CommandResponse]): The response to the resume (scanning) command, if applicable.
+    """
     pause_cmd: Optional[CommandResponse] = None
     cfg_cmd: Optional[CommandResponse] = None
     save_cmd: Optional[CommandResponse] = None
     resume_cmd: Optional[CommandResponse] = None
 
     def serialize(self) -> Dict:
+        """
+        Serialize the ConfigChainResponse object to a dictionary.
+
+        Returns:
+            Dict: The serialized representation of the ConfigChainResponse.
+        """
         return {
             "pause_cmd": self.pause_cmd.serialize() if self.pause_cmd else None,
             "cfg_cmd": self.cfg_cmd.serialize() if self.cfg_cmd else None,
@@ -200,6 +307,15 @@ class ConfigChainResponse:
 
     @classmethod
     def deserialize(cls, data: Dict) -> 'ConfigChainResponse':
+        """
+        Deserialize a dictionary to a ConfigChainResponse object.
+
+        Args:
+            data (Dict): The serialized data.
+
+        Returns:
+            ConfigChainResponse: The deserialized ConfigChainResponse object.
+        """
         return cls(
             pause_cmd=CommandResponse.deserialize(data['pause_cmd']) if data.get('pause_cmd') else None,
             cfg_cmd=CommandResponse.deserialize(data['cfg_cmd']) if data.get('cfg_cmd') else None,
@@ -215,12 +331,25 @@ class ConfigChainResponse:
 
 
 class PresenceHandler:
+    """
+    Handles presence detection events from the sensor.
+
+    Attributes:
+        observers (List[Callable[[bool], None]]): List of observer callbacks to be notified of presence changes.
+        presence_value (Optional[bool]): The current presence detection value.
+    """
 
     def __init__(self):
         self.observers: List[Callable[[bool], None]] = []
         self.presence_value: bool | None = None
 
     def __call__(self, output):
+        """
+        Process the sensor output and notify observers if presence detection changes.
+
+        Args:
+            output (Output): The parsed sensor output.
+        """
         if output.presence is None:
             return
 
@@ -233,6 +362,16 @@ class PresenceHandler:
 
 @dataclass
 class SensorStatus:
+    """
+    Represents the status of the sensor.
+
+    Attributes:
+        sensor_id (SensorId): The unique identifier of the sensor.
+        port (str): The serial port to which the sensor is connected.
+        timeout (Optional[int]): The timeout value for serial communication.
+        is_reading (bool): Indicates whether this instance is currently reading the sensor data (event notification).
+        is_scanning (bool): Indicates whether the sensor is currently scanning.
+    """
     sensor_id: SensorId
     port: str
     timeout: Optional[int]
@@ -241,6 +380,15 @@ class SensorStatus:
 
     @classmethod
     def deserialize(cls, as_dict):
+        """
+        Deserialize a dictionary to a SensorStatus object.
+
+        Args:
+            as_dict (Dict): The serialized data.
+
+        Returns:
+            SensorStatus: The deserialized SensorStatus object.
+        """
         return cls(
             SensorId.deserialize(as_dict["sensor_id"]),
             as_dict["port"],
@@ -250,6 +398,12 @@ class SensorStatus:
         )
 
     def serialize(self):
+        """
+        Serialize the SensorStatus object to a dictionary.
+
+        Returns:
+            Dict: The serialized representation of the SensorStatus.
+        """
         return {
             "sensor_id": self.sensor_id.serialize(),
             "port": self.port,
@@ -261,7 +415,7 @@ class SensorStatus:
 
 def synchronized(method):
     """
-    A decorator to lock methods for thread-safe operation.
+    A decorator to lock methods for thread-safe operation and serial execution.
     """
 
     @wraps(method)
@@ -273,6 +427,18 @@ def synchronized(method):
 
 
 def range_segments(params):
+    """
+    Validate and process range segment parameters (for "Sensor Detection Area Configuration" command).
+
+    Args:
+        params (List[int]): List of range segment parameters.
+
+    Returns:
+        List[Tuple[int, int]]: List of range segment tuples (start, end).
+
+    Raises:
+        ValueError: If the segment parameters are invalid.
+    """
     if len(params) % 2 != 0:
         raise ValueError('Missing end index of a sensing area')
     if params[0] < 0 or params[-1] > 127:
@@ -289,8 +455,23 @@ def range_segments(params):
 
 
 class Sensor:
+    """
+    Represents the SEN0395 sensor.
+
+    Attributes:
+        sensor_id (SensorId): The unique identifier of the sensor.
+        serial (Serial): The serial connection to the sensor.
+        handlers (List[Callable[[Output], None]]): List of output handlers.
+    """
 
     def __init__(self, sensor_name, serial_con):
+        """
+        Initialize the Sensor object.
+
+        Args:
+            sensor_name (str): The name of the sensor.
+            serial_con (Serial): The serial connection to the sensor.
+        """
         self.sensor_id = SensorId(SensorType.SEN0395, sensor_name)
         self.serial = serial_con
         self.handlers: List[Callable[[Output], None]] = []
@@ -332,12 +513,22 @@ class Sensor:
 
     @synchronized
     def status(self):
+        """
+        Get the current status of the sensor.
+
+        Returns:
+            SensorStatus: The status of the sensor.
+        """
         is_reading = self._reading_thread is not None
         is_scanning = self._read_output() is not None
         return SensorStatus(self.sensor_id, self.serial.port, self.serial.timeout, is_reading, is_scanning)
 
     @synchronized
     def start_reading(self):
+        """
+        Start reading sensor data in a separate thread.
+        When started, the presence handlers periodically receive the current presence value.
+        """
         if self._reading_thread:
             return
 
@@ -346,6 +537,13 @@ class Sensor:
         log.info(f"[reading_started] sensor=[{self.sensor_id}] thread=[{self._reading_thread}]")
 
     def stop_reading(self, timeout=None):
+        """
+        Stop reading sensor data and wait for the reading thread to terminate.
+        When stopped, the presence handlers do not periodically receive the current presence value.
+
+        Args:
+            timeout (float, optional): The maximum time to wait for the reading thread to terminate.
+        """
         with self._lock:
             self._reading_stopped = True
             reading_thread = self._reading_thread
@@ -356,6 +554,10 @@ class Sensor:
             log.info(f"[reading_stopped] sensor=[{self.sensor_id}] thread=[{reading_thread}]")
 
     def read(self):
+        """
+        Read sensor data continuously until stopped. This is a blocking method.
+        Once reading starts, the presence handlers periodically receive the current presence value.
+        """
         self._reading_stopped = False
 
         while not self._reading_stopped:
@@ -370,15 +572,26 @@ class Sensor:
 
     @synchronized
     def read_presence(self) -> Optional[bool]:
+        """
+        Read the presence detection status from the sensor.
+
+        Returns:
+            Optional[bool]: True if presence is detected, False if no presence, None if unable to determine.
+        """
         output = self._read_output()
         return output.presence if output is not None else None
 
     @synchronized
     def send_command(self, cmd: Command, *params) -> CommandResponse:
         """
-        Sends a command to the device via serial connection.
+        Send a command to the sensor via serial connection.
 
-        :param cmd: The command string to be sent to the device.
+        Args:
+            cmd (Command): The command to be sent to the sensor.
+            *params: Additional parameters for the command.
+
+        Returns:
+            CommandResponse: The response received from the sensor.
         """
         cmd_str = cmd.value + (" " if params else "") + " ".join(map(str, params))
         self.serial.reset_input_buffer()  # Clear the input buffer to remove any stale data
@@ -412,6 +625,24 @@ class Sensor:
 
     @synchronized
     def configure(self, cmd: Command, *params) -> ConfigChainResponse:
+        """
+        Configure the sensor with the given command and parameters.
+        The configuration chain consists of the following steps:
+            1. Stop command, if the sensor is currently scanning.
+            2. Configuration command with the provided parameters.
+            3. Save configuration command to persist the changes.
+            4. Start command, if the sensor was previously stopped.
+
+        Args:
+            cmd (Command): The configuration command.
+            *params: Additional parameters for the configuration command.
+
+        Returns:
+            ConfigChainResponse: The response to the configuration command chain.
+
+        Raises:
+            ValueError: If the command is not a configuration command.
+        """
         if not cmd.is_config:
             raise ValueError(f"Command {cmd} is not a configuration command")
 
@@ -434,32 +665,99 @@ class Sensor:
         return resp
 
     def start_scanning(self) -> CommandResponse:
+        """
+        Start the sensor scanning.
+
+        Returns:
+            CommandResponse: The response to the start scanning command.
+        """
         return self.send_command(Command.SENSOR_START)
 
     def stop_scanning(self) -> CommandResponse:
+        """
+        Stop the sensor scanning.
+
+        Returns:
+            CommandResponse: The response to the stop scanning command.
+        """
         return self.send_command(Command.SENSOR_STOP)
 
     def set_latency(self, detection_delay, disappearance_delay) -> CommandResponse:
+        """
+        Set the latency configuration of the sensor.
+
+        Args:
+            detection_delay (int): The delay time for output of sensing results when a target is detected.
+            disappearance_delay (int): The delay time for output of sensing results after the target disappears.
+
+        Returns:
+            CommandResponse: The response to the latency configuration command.
+        """
         return self.send_command(Command.LATENCY_CONFIG, -1, detection_delay, disappearance_delay)
 
     def set_detection_range(self, /, seg_a, seg_b=None, seg_c=None, seg_d=None):
+        """
+        Set the detection range configuration of the sensor.
+
+        Args:
+            seg_a (Tuple[int, int]): The first segment of the sensing area configuration.
+            seg_b (Tuple[int, int], optional): The second segment of the sensing area configuration.
+            seg_c (Tuple[int, int], optional): The third segment of the sensing area configuration.
+            seg_d (Tuple[int, int], optional): The fourth segment of the sensing area configuration.
+
+        Returns:
+            CommandResponse: The response to the detection range configuration command.
+        """
         params = [param for seg in [seg_a, seg_b, seg_c, seg_d] if seg is not None for param in seg]
         range_segments(params)
 
         return self.send_command(Command.DETECTION_RANGE_CONFIG, *([-1] + params))
 
     def configure_latency(self, detection_delay, disappearance_delay) -> ConfigChainResponse:
+        """
+        Configure the latency settings of the sensor.
+        The change is saved to the sensor's persistent memory.
+
+        Args:
+            detection_delay (int): The delay time for output of sensing results when a target is detected.
+            disappearance_delay (int): The delay time for output of sensing results after the target disappears.
+
+        Returns:
+            ConfigChainResponse: The response to the latency configuration command chain.
+        """
         return self.configure(Command.LATENCY_CONFIG, -1, detection_delay, disappearance_delay)
 
     def configure_detection_range(self, /, seg_a, seg_b=None, seg_c=None, seg_d=None):
+        """
+        Configure the detection range settings of the sensor.
+        The change is saved to the sensor's persistent memory.
+
+        Args:
+            seg_a (Tuple[int, int]): The first segment of the sensing area configuration.
+            seg_b (Tuple[int, int], optional): The second segment of the sensing area configuration.
+            seg_c (Tuple[int, int], optional): The third segment of the sensing area configuration.
+            seg_d (Tuple[int, int], optional): The fourth segment of the sensing area configuration.
+
+        Returns:
+            ConfigChainResponse: The response to the detection range configuration command chain.
+        """
         params = [param for seg in [seg_a, seg_b, seg_c, seg_d] if seg is not None for param in seg]
         range_segments(params)
 
         return self.configure(Command.DETECTION_RANGE_CONFIG, *([-1] + params))
 
     def save_configuration(self):
+        """
+        Save the sensor configuration.
+
+        Returns:
+            CommandResponse: The response to the save configuration command.
+        """
         return self.send_command(Command.SAVE_CONFIG, *SAVE_CONFIG_PARAMETERS)
 
     def close(self):
+        """
+        Close the sensor connection and stop reading.
+        """
         self.stop_reading()
         self.serial.close()
