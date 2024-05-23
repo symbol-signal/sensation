@@ -26,12 +26,12 @@ from sensation.sen0395 import *
 
 sensor = Sensor("sensor_name",  Serial('/dev/ttyAMA0', 115200, timeout=1))
 
-sensor.status()
+sensor.status()  # Not needed, just checking that the sensor works well
 # SensorStatus(sensor_id=SensorId(sensor_type=<SensorType.SEN0395: 'sen0395'>, sensor_name='sensor_name'), port='/dev/ttyAMA0', timeout=1, is_reading=False, is_scanning=False)
 
 # >> DO YOUR OWN THINGS HERE <<
 
-sensor.close()  # This closes also the `serial` instance
+sensor.close()  # This closes also the `Serial` instance
 ```
 
 ##### Presence Reading
@@ -54,7 +54,7 @@ handler = PresenceHandler()
 handler.observers.append(lambda presence: print(f"[presence_change] presence=[{presence}]"))
 sensor.handlers.append(handler)
 
-sensor.start_reading()  # This start a new thread, alternatively you can run blocking `read()` method by yourself
+sensor.start_reading()  # This starts a new thread, alternatively you can run the blocking `read()` method by yourself
 # [presence_change] presence=[False]
 # [presence_change] presence=[True]
 sensor.stop_reading()
