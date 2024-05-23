@@ -369,7 +369,7 @@ class Sensor:
             time.sleep(0.01)
 
     @synchronized
-    def read_presence(self):
+    def read_presence(self) -> Optional[bool]:
         output = self._read_output()
         return output.presence if output is not None else None
 
