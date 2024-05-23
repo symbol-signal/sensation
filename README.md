@@ -20,7 +20,7 @@ For more information about the product, refer to the [SEN0395 documentation](htt
 
 #### Common Usage Examples
 ##### Sensor Instance (common code for the following examples)
-```pycon
+```python
 from serial import Serial
 from sensation.sen0395 import *
 
