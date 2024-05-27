@@ -54,6 +54,7 @@ handler = PresenceHandler()
 handler.observers.append(lambda presence: print(f"[presence_change] presence=[{presence}]"))
 sensor.handlers.append(handler)
 
+# sensor.clear_buffer() # You may want to clear the buffer first, if the connection has been opened for a while
 sensor.start_reading()  # This starts a new thread, alternatively you can run the blocking `read()` method by yourself
 # [presence_change] presence=[False]
 # [presence_change] presence=[True]

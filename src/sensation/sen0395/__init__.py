@@ -524,6 +524,10 @@ class Sensor:
         return SensorStatus(self.sensor_id, self.serial.port, self.serial.timeout, is_reading, is_scanning)
 
     @synchronized
+    def clear_buffer(self):
+        self.serial.reset_input_buffer()
+
+    @synchronized
     def start_reading(self):
         """
         Start reading sensor data in a separate thread.
@@ -594,7 +598,7 @@ class Sensor:
             CommandResponse: The response received from the sensor.
         """
         cmd_str = cmd.value + (" " if params else "") + " ".join(map(str, params))
-        self.serial.reset_input_buffer()  # Clear the input buffer to remove any stale data
+        self.clear_buffer()  # Clear the input buffer to remove any stale data
         self.serial.write((cmd_str + '\n').encode('utf-8'))
         self.serial.flush()
 
