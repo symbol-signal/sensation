@@ -12,6 +12,7 @@ requires-python = ">=3.9"
 dynamic = ["version", "description"]
 dependencies = [
     "pyserial>=3.5",
+    "serialio>=2.4.0",
 ]
 
 [tool.flit.module]

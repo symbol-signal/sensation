@@ -14,7 +14,7 @@ Example usage:
     presence = sensor.read_presence()
     sensor.close()
 """
-
+import asyncio
 import logging
 import re
 import time
@@ -22,7 +22,9 @@ from dataclasses import dataclass
 from enum import Enum
 from functools import wraps
 from threading import RLock, Thread
-from typing import List, Callable, Optional, Dict
+from typing import List, Callable, Optional, Dict, Awaitable, Union
+
+import serial
 
 from sensation.common import SensorId, SensorType
 
@@ -765,3 +767,307 @@ class Sensor:
         """
         self.stop_reading()
         self.serial.close()
+
+
+def locked(method):
+    """
+    A decorator to lock methods for thread-safe operation and asynchronous execution.
+    """
+
+    @wraps(method)
+    async def wrapper(self, *args, **kwargs):
+        async with self._lock:
+            return await method(self, *args, **kwargs)
+
+    return wrapper
+
+
+class SensorAsync:
+    """
+    Represents the SEN0395 sensor.
+
+    Attributes:
+        sensor_id (SensorId): The unique identifier of the sensor.
+        serial (Serial): The serial connection to the sensor.
+        handlers (List[Callable[[Output], None]]): List of output handlers.
+    """
+
+    def __init__(self, sensor_name, serial_con):
+        """
+        Initialize the Sensor object.
+
+        Args:
+            sensor_name (str): The name of the sensor.
+            serial_con (Serial): The serial connection to the sensor.
+        """
+        self.sensor_id = SensorId(SensorType.SEN0395, sensor_name)
+        self.serial = serial_con
+        self.handlers: List[Union[Callable[[Output], None], Callable[[Output], Awaitable[None]]]] = []
+        self._lock = asyncio.Lock()
+        self._reading_task: Optional[asyncio.Task] = None
+
+    async def _read_output(self) -> Optional[Output]:
+        terminator = b'leapMMW:/>'
+        buffer = bytearray()
+
+        while True:
+            c = await self.serial.read(1)
+            if not c:
+                return None
+
+            buffer += c
+
+            if buffer[-(len(terminator)):] == terminator:
+                return None
+
+            if buffer[-(len(serial.LF)):] == serial.LF:
+                line = bytes(buffer).decode('utf-8').rstrip()
+                return Output(line)
+
+    @locked
+    async def status(self):
+        """
+        Get the current status of the sensor.
+
+        Returns:
+            SensorStatus: The status of the sensor.
+        """
+        is_reading = self._reading_task is not None
+        is_scanning = await self._read_output() is not None
+        return SensorStatus(self.sensor_id, self.serial.port, self.serial.timeout, is_reading, is_scanning)
+
+    @locked
+    async def clear_buffer(self):
+        await self.serial.reset_input_buffer()
+
+    def start_reading(self):
+        """
+        Start reading sensor data in a separate thread.
+        When started, the presence handlers periodically receive the current presence value.
+        """
+        if self._reading_task:
+            return
+
+        self._reading_task = asyncio.create_task(self.read())
+        log.info(f"[reading_started] sensor=[{self.sensor_id}] task=[{self._reading_task}]")
+
+    async def read(self):
+        """
+        Read sensor data continuously until stopped.
+        Once reading starts, the presence handlers periodically receive the current presence value.
+        """
+        while True:
+            async with self._lock:
+                output = await self._read_output()
+            if output:
+                for handler in self.handlers:
+                    await handler(output)
+
+    async def stop_reading(self):
+        """
+        Stop reading sensor data and wait for the reading thread to terminate.
+        When stopped, the presence handlers do not periodically receive the current presence value.
+        """
+        reading_task = self._reading_task
+        self._reading_task = None
+
+        if reading_task:
+            reading_task.cancel()
+            await reading_task
+            log.info(f"[reading_stopped] sensor=[{self.sensor_id}] task=[{reading_task}]")
+
+    @locked
+    async def read_presence(self) -> Optional[bool]:
+        """
+        Read the presence detection status from the sensor.
+
+        Returns:
+            Optional[bool]: True if presence is detected, False if no presence, None if unable to determine.
+        """
+        output = await self._read_output()
+        return output.presence if output is not None else None
+
+    async def _send_command(self, cmd: Command, *params) -> CommandResponse:
+        """
+        Send a command to the sensor via serial connection.
+
+        Args:
+            cmd (Command): The command to be sent to the sensor.
+            *params: Additional parameters for the command.
+
+        Returns:
+            CommandResponse: The response received from the sensor.
+        """
+        cmd_str = cmd.value + (" " if params else "") + " ".join(map(str, params))
+        await self.serial.reset_input_buffer()  # Clear the input buffer to remove any stale data
+        await self.serial.write((cmd_str + '\n').encode('utf-8'))
+        await self.serial.flush()
+
+        term_tries = 0
+        confirmed = False
+        outputs = []
+        while output := await self._read_output():
+            if output.output == cmd_str:
+                confirmed = True
+                outputs.clear()  # Ignore unrelated outputs before the command echo
+            outputs.append(output)
+
+            term_tries += 1
+            if term_tries > 10:
+                log.warning("[no_command_response_terminator]")
+                break
+
+        if not confirmed:
+            log.warning(f"[command_unconfirmed] sensor=[{self.sensor_id}] command=[{cmd_str}] outputs={outputs}")
+            return CommandResponse(None)
+
+        resp = CommandResponse(outputs)
+        if resp:
+            log.info(f"[command_executed] sensor=[{self.sensor_id}] command=[{cmd_str}] response=[{resp}]")
+        else:
+            log.warning(f"[command_failed] sensor=[{self.sensor_id}] command=[{cmd_str}] response=[{resp}]")
+        return resp
+
+    @locked
+    async def configure(self, cmd: Command, *params) -> ConfigChainResponse:
+        """
+        Configure the sensor with the given command and parameters.
+        The configuration chain consists of the following steps:
+            1. Stop command, if the sensor is currently scanning.
+            2. Configuration command with the provided parameters.
+            3. Save configuration command to persist the changes.
+            4. Start command, if the sensor was previously stopped.
+
+        Args:
+            cmd (Command): The configuration command.
+            *params: Additional parameters for the configuration command.
+
+        Returns:
+            ConfigChainResponse: The response to the configuration command chain.
+
+        Raises:
+            ValueError: If the command is not a configuration command.
+        """
+        if not cmd.is_config:
+            raise ValueError(f"Command {cmd} is not a configuration command")
+
+        resp = ConfigChainResponse()
+
+        is_scanning = await self._read_output() is not None
+        if is_scanning:
+            resp.pause_cmd = await self._send_command(Command.SENSOR_STOP)
+            if not resp.pause_cmd:
+                return resp
+
+        try:
+            resp.cfg_cmd = await self._send_command(cmd, *params)
+            if resp.cfg_cmd:
+                resp.save_cmd = await self._send_command(Command.SAVE_CONFIG, *SAVE_CONFIG_PARAMETERS)
+        finally:
+            if is_scanning:
+                resp.resume_cmd = await self._send_command(Command.SENSOR_START)
+
+        return resp
+
+    @locked
+    async def start_scanning(self) -> CommandResponse:
+        """
+        Start the sensor scanning.
+
+        Returns:
+            CommandResponse: The response to the start scanning command.
+        """
+        return await self._send_command(Command.SENSOR_START)
+
+    @locked
+    async def stop_scanning(self) -> CommandResponse:
+        """
+        Stop the sensor scanning.
+
+        Returns:
+            CommandResponse: The response to the stop scanning command.
+        """
+        return await self._send_command(Command.SENSOR_STOP)
+
+    @locked
+    async def set_latency(self, detection_delay, disappearance_delay) -> CommandResponse:
+        """
+        Set the latency configuration of the sensor.
+
+        Args:
+            detection_delay (int): The delay time for output of sensing results when a target is detected.
+            disappearance_delay (int): The delay time for output of sensing results after the target disappears.
+
+        Returns:
+            CommandResponse: The response to the latency configuration command.
+        """
+        return await self._send_command(Command.LATENCY_CONFIG, -1, detection_delay, disappearance_delay)
+
+    @locked
+    async def set_detection_range(self, /, seg_a, seg_b=None, seg_c=None, seg_d=None):
+        """
+        Set the detection range configuration of the sensor.
+
+        Args:
+            seg_a (Tuple[int, int]): The first segment of the sensing area configuration.
+            seg_b (Tuple[int, int], optional): The second segment of the sensing area configuration.
+            seg_c (Tuple[int, int], optional): The third segment of the sensing area configuration.
+            seg_d (Tuple[int, int], optional): The fourth segment of the sensing area configuration.
+
+        Returns:
+            CommandResponse: The response to the detection range configuration command.
+        """
+        params = [param for seg in [seg_a, seg_b, seg_c, seg_d] if seg is not None for param in seg]
+        range_segments(params)
+
+        return await self._send_command(Command.DETECTION_RANGE_CONFIG, *([-1] + params))
+
+    async def configure_latency(self, detection_delay, disappearance_delay) -> ConfigChainResponse:
+        """
+        Configure the latency settings of the sensor.
+        The change is saved to the sensor's persistent memory.
+
+        Args:
+            detection_delay (int): The delay time for output of sensing results when a target is detected.
+            disappearance_delay (int): The delay time for output of sensing results after the target disappears.
+
+        Returns:
+            ConfigChainResponse: The response to the latency configuration command chain.
+        """
+        return await self.configure(Command.LATENCY_CONFIG, -1, detection_delay, disappearance_delay)
+
+    def configure_detection_range(self, /, seg_a, seg_b=None, seg_c=None, seg_d=None):
+        """
+        Configure the detection range settings of the sensor.
+        The change is saved to the sensor's persistent memory.
+
+        Args:
+            seg_a (Tuple[int, int]): The first segment of the sensing area configuration.
+            seg_b (Tuple[int, int], optional): The second segment of the sensing area configuration.
+            seg_c (Tuple[int, int], optional): The third segment of the sensing area configuration.
+            seg_d (Tuple[int, int], optional): The fourth segment of the sensing area configuration.
+
+        Returns:
+            ConfigChainResponse: The response to the detection range configuration command chain.
+        """
+        params = [param for seg in [seg_a, seg_b, seg_c, seg_d] if seg is not None for param in seg]
+        range_segments(params)
+
+        return self.configure(Command.DETECTION_RANGE_CONFIG, *([-1] + params))
+
+    @locked
+    async def save_configuration(self):
+        """
+        Save the sensor configuration.
+
+        Returns:
+            CommandResponse: The response to the save configuration command.
+        """
+        return await self._send_command(Command.SAVE_CONFIG, *SAVE_CONFIG_PARAMETERS)
+
+    async def close(self):
+        """
+        Close the sensor connection and stop reading.
+        """
+        await self.stop_reading()
+        await self.serial.close()
