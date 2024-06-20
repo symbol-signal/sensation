@@ -856,12 +856,15 @@ class SensorAsync:
         Read sensor data continuously until stopped.
         Once reading starts, the presence handlers periodically receive the current presence value.
         """
-        while True:
-            async with self._lock:
-                output = await self._read_output()
-            if output:
-                for handler in self.handlers:
-                    await handler(output)
+        try:
+            while True:
+                async with self._lock:
+                    output = await self._read_output()
+                if output:
+                    for handler in self.handlers:
+                        await handler(output)
+        except asyncio.CancelledError:
+            pass
 
     async def stop_reading(self):
         """
