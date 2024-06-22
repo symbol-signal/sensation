@@ -782,6 +782,38 @@ def locked(method):
     return wrapper
 
 
+class PresenceHandlerAsync:
+    """
+    Handles presence detection events from the sensor.
+
+    Attributes:
+        observers (List[Callable[[bool], Union[None, Awaitable[None]]]]): List of observer callbacks to be notified of presence changes.
+        presence_value (Optional[bool]): The current presence detection value.
+    """
+
+    def __init__(self):
+        self.observers: List[Callable[[bool], Union[None, Awaitable[None]]]] = []
+        self.presence_value: bool | None = None
+
+    async def __call__(self, output):
+        """
+        Process the sensor output and notify observers if presence detection changes.
+
+        Args:
+            output (Output): The parsed sensor output.
+        """
+        if output.presence is None:
+            return
+
+        if self.presence_value != output.presence:
+            self.presence_value = output.presence
+
+            for observer in self.observers:
+                result = observer(self.presence_value)
+                if isinstance(result, Awaitable):
+                    await result
+
+
 class SensorAsync:
     """
     Represents the SEN0395 sensor.
