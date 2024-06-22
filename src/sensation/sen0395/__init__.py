@@ -25,6 +25,7 @@ from threading import RLock, Thread
 from typing import List, Callable, Optional, Dict, Awaitable, Union
 
 import serial
+from serial.serialutil import SerialException
 
 from sensation.common import SensorId, SensorType
 
@@ -568,7 +569,13 @@ class Sensor:
 
         while not self._reading_stopped:
             with self._lock:
-                output = self._read_output()
+                try:
+                    output = self._read_output()
+                except (SerialException, TimeoutError):
+                    logging.exception(f"Error reading from sensor {self.sensor_id}")
+                    time.sleep(2)
+                    continue
+
             if output:
                 for handler in self.handlers:
                     handler(output)
@@ -891,10 +898,19 @@ class SensorAsync:
         try:
             while True:
                 async with self._lock:
-                    output = await self._read_output()
+                    try:
+                        output = await self._read_output()
+                    except (SerialException, TimeoutError):
+                        logging.exception(f"Error reading from sensor {self.sensor_id}")
+                        await asyncio.sleep(5)
+                        continue
+
                 if output:
                     for handler in self.handlers:
-                        await handler(output)
+                        try:
+                            await handler(output)
+                        except Exception:
+                            logging.exception(f"Error in handler for sensor {self.sensor_id}")
         except asyncio.CancelledError:
             pass
 
@@ -1071,7 +1087,7 @@ class SensorAsync:
         """
         return await self.configure(Command.LATENCY_CONFIG, -1, detection_delay, disappearance_delay)
 
-    def configure_detection_range(self, /, seg_a, seg_b=None, seg_c=None, seg_d=None):
+    async def configure_detection_range(self, /, seg_a, seg_b=None, seg_c=None, seg_d=None):
         """
         Configure the detection range settings of the sensor.
         The change is saved to the sensor's persistent memory.
@@ -1088,7 +1104,7 @@ class SensorAsync:
         params = [param for seg in [seg_a, seg_b, seg_c, seg_d] if seg is not None for param in seg]
         range_segments(params)
 
-        return self.configure(Command.DETECTION_RANGE_CONFIG, *([-1] + params))
+        return await self.configure(Command.DETECTION_RANGE_CONFIG, *([-1] + params))
 
     @locked
     async def save_configuration(self):
