@@ -33,6 +33,22 @@ sensor.status()  # Not needed, just checking that the sensor works well
 
 sensor.close()  # This closes also the `Serial` instance
 ```
+##### Sensor Instance Async
+```python
+import serialio
+from sensation.sen0395 import *
+
+async def example():
+    serial_con = serialio.serial_for_url("serial:///dev/ttyAMA1", 115200)
+    sensor = SensorAsync("my_sensor", serial_con)
+    await serial_con.open()
+    
+    await sensor.status()  # Not needed, just checking that the sensor works well
+    
+    # >> DO YOUR OWN THINGS HERE <<
+    
+    await sensor.close()  # This closes also the serial connection instance
+```
 
 ##### Presence Reading
 ```python
@@ -48,6 +64,12 @@ sensor.read_presence()  # Returns `True` on presence
 # True
 ```
 
+##### Presence Reading Async
+```python
+await sensor.start_scanning()
+await sensor.read_presence()
+```
+
 ##### Presence Observer
 ```python
 handler = PresenceHandler()
@@ -61,13 +83,35 @@ sensor.start_reading()  # This starts a new thread, alternatively you can run th
 sensor.stop_reading()
 ```
 
+##### Presence Observer Async
+```python
+handler = PresenceHandlerAsync()
+# Supports both sync...
+handler.observers.append(lambda presence: print(f"[presence_change] presence=[{presence}]"))
+# ...and async observers
+async def async_observer(presence):
+    print(f"[presence_change] presence=[{presence}]")
+handler.observers.append(async_observer)
+
+sensor.handlers.append(handler)
+
+# await sensor.clear_buffer() # You may want to clear the buffer first, if the connection has been opened for a while
+sensor.start_reading()  # This starts a new async task
+await sensor.stop_reading()  # Wait for the reading task to complete
+```
+
 ##### Managed Sensor Configuration
 ```python
 sensor.configure_latency(10, 60)
 # ConfigChainResponse(pause_cmd=None, cfg_cmd=CommandResponse(outputs=[outputLatency -1 10 60, Done]), save_cmd=CommandResponse(outputs=[saveCfg 0x45670123 0xCDEF89AB 0x956 128C6 0xDF54AC89, save cfg complete, Done]), resume_cmd=None)
 ```
+##### Managed Sensor Configuration Async
+```python
+await sensor_async.configure_latency(10, 60)
+```
 
 ##### Manual Sensor Configuration
+**Note:** *All below methods are async in the async sensor*
 ```python
 sensor.stop_scanning()
 #CommandResponse(outputs=[sensorStop, Done])
