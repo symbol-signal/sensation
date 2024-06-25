@@ -889,30 +889,28 @@ class SensorAsync:
 
         self._reading_task = asyncio.create_task(self.read())
         log.info(f"[reading_started] sensor=[{self.sensor_id}] task=[{self._reading_task}]")
+        return self._reading_task
 
     async def read(self):
         """
         Read sensor data continuously until stopped.
         Once reading starts, the presence handlers periodically receive the current presence value.
         """
-        try:
-            while True:
-                async with self._lock:
-                    try:
-                        output = await self._read_output()
-                    except (SerialException, TimeoutError):
-                        logging.exception(f"Error reading from sensor {self.sensor_id}")
-                        await asyncio.sleep(5)
-                        continue
+        while True:
+            async with self._lock:
+                try:
+                    output = await self._read_output()
+                except (SerialException, TimeoutError):
+                    logging.exception(f"Error reading from sensor {self.sensor_id}")
+                    await asyncio.sleep(5)
+                    continue
 
-                if output:
-                    for handler in self.handlers:
-                        try:
-                            await handler(output)
-                        except Exception:
-                            logging.exception(f"Error in handler for sensor {self.sensor_id}")
-        except asyncio.CancelledError:
-            pass
+            if output:
+                for handler in self.handlers:
+                    try:
+                        await handler(output)
+                    except Exception:
+                        logging.exception(f"Error in handler for sensor {self.sensor_id}")
 
     async def stop_reading(self):
         """
@@ -923,9 +921,13 @@ class SensorAsync:
         self._reading_task = None
 
         if reading_task:
-            reading_task.cancel()
-            await reading_task
-            log.info(f"[reading_stopped] sensor=[{self.sensor_id}] task=[{reading_task}]")
+            try:
+                reading_task.cancel()
+                await reading_task
+            except asyncio.CancelledError:
+                pass  # This is expected due to the cancellation
+            finally:
+                log.info(f"[reading_stopped] sensor=[{self.sensor_id}] task=[{reading_task}]")
 
     @locked
     async def read_presence(self) -> Optional[bool]:
