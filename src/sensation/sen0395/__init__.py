@@ -901,7 +901,7 @@ class SensorAsync:
                 try:
                     output = await self._read_output()
                 except (SerialException, TimeoutError):
-                    logging.exception(f"Error reading from sensor {self.sensor_id}")
+                    logging.exception(f"[sensor_error] sensor=[{self.sensor_id}]")
                     await asyncio.sleep(5)
                     continue
 
@@ -910,7 +910,7 @@ class SensorAsync:
                     try:
                         await handler(output)
                     except Exception:
-                        logging.exception(f"Error in handler for sensor {self.sensor_id}")
+                        logging.exception(f"[sensor_handler_error] sensor=[{self.sensor_id}] handler=[{handler}]")
 
     async def stop_reading(self):
         """
