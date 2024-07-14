@@ -942,7 +942,7 @@ class SensorAsync:
 
     @locked
     async def send_command(self, cmd: Command, *params):
-        return self._send_command(cmd, *params)
+        return await self._send_command(cmd, *params)
 
     async def _send_command(self, cmd: Command, *params) -> CommandResponse:
         """
