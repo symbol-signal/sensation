@@ -940,6 +940,10 @@ class SensorAsync:
         output = await self._read_output()
         return output.presence if output is not None else None
 
+    @locked
+    async def send_command(self, cmd: Command, *params):
+        return self._send_command(cmd, *params)
+
     async def _send_command(self, cmd: Command, *params) -> CommandResponse:
         """
         Send a command to the sensor via serial connection.
