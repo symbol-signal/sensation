@@ -25,7 +25,7 @@ from threading import RLock, Thread
 from typing import List, Callable, Optional, Dict, Awaitable, Union
 
 import serial
-from serial.serialutil import SerialException
+from serial.serialutil import SerialException, SerialTimeoutException
 
 from sensation.common import SensorId, SensorType
 
@@ -850,7 +850,10 @@ class SensorAsync:
         buffer = bytearray()
 
         while True:
-            c = await self.serial.read(1)
+            try:
+                c = await self.serial.read(1)
+            except SerialTimeoutException:
+                return None
             if not c:
                 return None
 
@@ -900,7 +903,7 @@ class SensorAsync:
             async with self._lock:
                 try:
                     output = await self._read_output()
-                except (SerialException, TimeoutError):
+                except SerialException:
                     logging.exception(f"[sensor_error] sensor=[{self.sensor_id}]")
                     await asyncio.sleep(5)
                     continue
