@@ -845,7 +845,21 @@ class SensorAsync:
         self._lock = asyncio.Lock()
         self._reading_task: Optional[asyncio.Task] = None
 
+    async def _wait_for_data(self):
+        wait_count = 0
+        while wait_count < 6:
+            if self.serial.in_waiting:
+                return True
+            else:
+                wait_count += 1
+                await asyncio.sleep(0.2)
+        else:
+            return False
+
     async def _read_output(self) -> Optional[Output]:
+        if not await self._wait_for_data():
+            return None
+
         terminator = b'leapMMW:/>'
         buffer = bytearray()
 
