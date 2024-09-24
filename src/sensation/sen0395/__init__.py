@@ -44,6 +44,7 @@ class Command(Enum):
     LATENCY_CONFIG = ("outputLatency", True)
     GET_LATENCY = ("getLatency", False)
     DETECTION_RANGE_CONFIG = ("detRangeCfg", True)
+    GET_RANGE = ("getRange", False)
     SAVE_CONFIG = ("saveCfg", False)
     NONE = ('none', False)
 
@@ -683,7 +684,7 @@ class Sensor:
         Start the sensor scanning.
 
         Returns:
-            CommandResponse: The response to the start scanning command.
+            CommandResponse: The response to the `start scanning` command.
         """
         return self.send_command(Command.SENSOR_START)
 
@@ -692,13 +693,16 @@ class Sensor:
         Stop the sensor scanning.
 
         Returns:
-            CommandResponse: The response to the stop scanning command.
+            CommandResponse: The response to the `stop scanning` command.
         """
         return self.send_command(Command.SENSOR_STOP)
 
     def get_latency(self) -> CommandResponse:
         """
         Get the configured latency of the sensor
+
+        Returns:
+            CommandResponse: The response to the `get latency` command.
         """
         return self.send_command(Command.GET_LATENCY)
 
@@ -711,9 +715,18 @@ class Sensor:
             disappearance_delay (int): The delay time for output of sensing results after the target disappears.
 
         Returns:
-            CommandResponse: The response to the latency configuration command.
+            CommandResponse: The response to the `latency configuration` command.
         """
         return self.send_command(Command.LATENCY_CONFIG, -1, detection_delay, disappearance_delay)
+
+    def get_detection_range(self) -> CommandResponse:
+        """
+        Get the configured detection range of the sensor
+
+        Returns:
+            CommandResponse: The response to the `get range` command.
+        """
+        return self.send_command(Command.GET_RANGE)
 
     def set_detection_range(self, /, seg_a, seg_b=None, seg_c=None, seg_d=None) -> CommandResponse:
         """
@@ -726,7 +739,7 @@ class Sensor:
             seg_d (Tuple[int, int], optional): The fourth segment of the sensing area configuration.
 
         Returns:
-            CommandResponse: The response to the detection range configuration command.
+            CommandResponse: The response to the `detection range` configuration command.
         """
         params = [param for seg in [seg_a, seg_b, seg_c, seg_d] if seg is not None for param in seg]
         range_segments(params)
@@ -743,7 +756,7 @@ class Sensor:
             disappearance_delay (int): The delay time for output of sensing results after the target disappears.
 
         Returns:
-            ConfigChainResponse: The response to the latency configuration command chain.
+            ConfigChainResponse: The response to the `latency configuration` command chain.
         """
         return self.configure(Command.LATENCY_CONFIG, -1, detection_delay, disappearance_delay)
 
@@ -759,7 +772,7 @@ class Sensor:
             seg_d (Tuple[int, int], optional): The fourth segment of the sensing area configuration.
 
         Returns:
-            ConfigChainResponse: The response to the detection range configuration command chain.
+            ConfigChainResponse: The response to the `detection range` configuration command chain.
         """
         params = [param for seg in [seg_a, seg_b, seg_c, seg_d] if seg is not None for param in seg]
         range_segments(params)
@@ -771,7 +784,7 @@ class Sensor:
         Save the sensor configuration.
 
         Returns:
-            CommandResponse: The response to the save configuration command.
+            CommandResponse: The response to the `save configuration` command.
         """
         return self.send_command(Command.SAVE_CONFIG, *SAVE_CONFIG_PARAMETERS)
 
@@ -1059,7 +1072,7 @@ class SensorAsync:
         Start the sensor scanning.
 
         Returns:
-            CommandResponse: The response to the start scanning command.
+            CommandResponse: The response to the `start scanning` command.
         """
         return await self._send_command(Command.SENSOR_START)
 
@@ -1068,7 +1081,7 @@ class SensorAsync:
         Stop the sensor scanning.
 
         Returns:
-            CommandResponse: The response to the stop scanning command.
+            CommandResponse: The response to the `stop scanning` command.
         """
         return await self.send_command(Command.SENSOR_STOP)
 
@@ -1088,9 +1101,18 @@ class SensorAsync:
             disappearance_delay (int): The delay time for output of sensing results after the target disappears.
 
         Returns:
-            CommandResponse: The response to the latency configuration command.
+            CommandResponse: The response to the `latency configuration` command.
         """
         return await self.send_command(Command.LATENCY_CONFIG, -1, detection_delay, disappearance_delay)
+
+    async def get_detection_range(self) -> CommandResponse:
+        """
+        Get the configured detection range of the sensor
+
+        Returns:
+            CommandResponse: The response to the `get range` command.
+        """
+        return await self.send_command(Command.GET_RANGE)
 
     async def set_detection_range(self, /, seg_a, seg_b=None, seg_c=None, seg_d=None) -> CommandResponse:
         """
@@ -1103,7 +1125,7 @@ class SensorAsync:
             seg_d (Tuple[int, int], optional): The fourth segment of the sensing area configuration.
 
         Returns:
-            CommandResponse: The response to the detection range configuration command.
+            CommandResponse: The response to the `detection range` configuration command.
         """
         params = [param for seg in [seg_a, seg_b, seg_c, seg_d] if seg is not None for param in seg]
         range_segments(params)
@@ -1120,7 +1142,7 @@ class SensorAsync:
             disappearance_delay (int): The delay time for output of sensing results after the target disappears.
 
         Returns:
-            ConfigChainResponse: The response to the latency configuration command chain.
+            ConfigChainResponse: The response to the `latency configuration` command chain.
         """
         return await self.configure(Command.LATENCY_CONFIG, -1, detection_delay, disappearance_delay)
 
@@ -1136,7 +1158,7 @@ class SensorAsync:
             seg_d (Tuple[int, int], optional): The fourth segment of the sensing area configuration.
 
         Returns:
-            ConfigChainResponse: The response to the detection range configuration command chain.
+            ConfigChainResponse: The response to the `detection range` configuration command chain.
         """
         params = [param for seg in [seg_a, seg_b, seg_c, seg_d] if seg is not None for param in seg]
         range_segments(params)
@@ -1148,7 +1170,7 @@ class SensorAsync:
         Save the sensor configuration.
 
         Returns:
-            CommandResponse: The response to the save configuration command.
+            CommandResponse: The response to the `save configuration` command.
         """
         return await self.send_command(Command.SAVE_CONFIG, *SAVE_CONFIG_PARAMETERS)
 
