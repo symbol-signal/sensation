@@ -42,6 +42,7 @@ class Command(Enum):
     SENSOR_STOP = ("sensorStop", False)
     RESET_SYSTEM = ("resetSystem", False)
     LATENCY_CONFIG = ("outputLatency", True)
+    GET_LATENCY = ("getLatency", False)
     DETECTION_RANGE_CONFIG = ("detRangeCfg", True)
     SAVE_CONFIG = ("saveCfg", False)
     NONE = ('none', False)
@@ -482,7 +483,7 @@ class Sensor:
         self._reading_stopped = False
         self._reading_thread: Optional[Thread] = None
 
-    def _wait_for_data(self):
+    def _wait_for_data(self) -> bool:
         wait_count = 0
         while wait_count < 6:
             if self.serial.in_waiting:
@@ -515,7 +516,7 @@ class Sensor:
                 return Output(line)
 
     @synchronized
-    def status(self):
+    def status(self) -> SensorStatus:
         """
         Get the current status of the sensor.
 
@@ -695,6 +696,12 @@ class Sensor:
         """
         return self.send_command(Command.SENSOR_STOP)
 
+    def get_latency(self) -> CommandResponse:
+        """
+        Get the configured latency of the sensor
+        """
+        return self.send_command(Command.GET_LATENCY)
+
     def set_latency(self, detection_delay, disappearance_delay) -> CommandResponse:
         """
         Set the latency configuration of the sensor.
@@ -708,7 +715,7 @@ class Sensor:
         """
         return self.send_command(Command.LATENCY_CONFIG, -1, detection_delay, disappearance_delay)
 
-    def set_detection_range(self, /, seg_a, seg_b=None, seg_c=None, seg_d=None):
+    def set_detection_range(self, /, seg_a, seg_b=None, seg_c=None, seg_d=None) -> CommandResponse:
         """
         Set the detection range configuration of the sensor.
 
@@ -740,7 +747,7 @@ class Sensor:
         """
         return self.configure(Command.LATENCY_CONFIG, -1, detection_delay, disappearance_delay)
 
-    def configure_detection_range(self, /, seg_a, seg_b=None, seg_c=None, seg_d=None):
+    def configure_detection_range(self, /, seg_a, seg_b=None, seg_c=None, seg_d=None) -> ConfigChainResponse:
         """
         Configure the detection range settings of the sensor.
         The change is saved to the sensor's persistent memory.
@@ -759,7 +766,7 @@ class Sensor:
 
         return self.configure(Command.DETECTION_RANGE_CONFIG, *([-1] + params))
 
-    def save_configuration(self):
+    def save_configuration(self) -> CommandResponse:
         """
         Save the sensor configuration.
 
@@ -845,7 +852,7 @@ class SensorAsync:
         self._lock = asyncio.Lock()
         self._reading_task: Optional[asyncio.Task] = None
 
-    async def _wait_for_data(self):
+    async def _wait_for_data(self) -> bool:
         wait_count = 0
         while wait_count < 6:
             if self.serial.in_waiting:
@@ -881,7 +888,7 @@ class SensorAsync:
                 return Output(line)
 
     @locked
-    async def status(self):
+    async def status(self) -> SensorStatus:
         """
         Get the current status of the sensor.
 
@@ -896,10 +903,13 @@ class SensorAsync:
     async def clear_buffer(self):
         await self.serial.reset_input_buffer()
 
-    def start_reading(self):
+    def start_reading(self) -> Optional[asyncio.Task]:
         """
         Start reading sensor data in a separate thread.
         When started, the presence handlers periodically receive the current presence value.
+
+        Returns:
+            Optional[asyncio.Task]: The created task if a new one was started, None if a task was already running.
         """
         if self._reading_task:
             return
@@ -958,7 +968,7 @@ class SensorAsync:
         return output.presence if output is not None else None
 
     @locked
-    async def send_command(self, cmd: Command, *params):
+    async def send_command(self, cmd: Command, *params) -> CommandResponse:
         return await self._send_command(cmd, *params)
 
     async def _send_command(self, cmd: Command, *params) -> CommandResponse:
@@ -1053,7 +1063,6 @@ class SensorAsync:
         """
         return await self._send_command(Command.SENSOR_START)
 
-    @locked
     async def stop_scanning(self) -> CommandResponse:
         """
         Stop the sensor scanning.
@@ -1061,9 +1070,15 @@ class SensorAsync:
         Returns:
             CommandResponse: The response to the stop scanning command.
         """
-        return await self._send_command(Command.SENSOR_STOP)
+        return await self.send_command(Command.SENSOR_STOP)
 
-    @locked
+    async def get_latency(self) -> CommandResponse:
+        """
+        Get the configured latency of the sensor
+        """
+        return await self.send_command(Command.GET_LATENCY)
+
+
     async def set_latency(self, detection_delay, disappearance_delay) -> CommandResponse:
         """
         Set the latency configuration of the sensor.
@@ -1075,10 +1090,9 @@ class SensorAsync:
         Returns:
             CommandResponse: The response to the latency configuration command.
         """
-        return await self._send_command(Command.LATENCY_CONFIG, -1, detection_delay, disappearance_delay)
+        return await self.send_command(Command.LATENCY_CONFIG, -1, detection_delay, disappearance_delay)
 
-    @locked
-    async def set_detection_range(self, /, seg_a, seg_b=None, seg_c=None, seg_d=None):
+    async def set_detection_range(self, /, seg_a, seg_b=None, seg_c=None, seg_d=None) -> CommandResponse:
         """
         Set the detection range configuration of the sensor.
 
@@ -1094,7 +1108,7 @@ class SensorAsync:
         params = [param for seg in [seg_a, seg_b, seg_c, seg_d] if seg is not None for param in seg]
         range_segments(params)
 
-        return await self._send_command(Command.DETECTION_RANGE_CONFIG, *([-1] + params))
+        return await self.send_command(Command.DETECTION_RANGE_CONFIG, *([-1] + params))
 
     async def configure_latency(self, detection_delay, disappearance_delay) -> ConfigChainResponse:
         """
@@ -1110,7 +1124,7 @@ class SensorAsync:
         """
         return await self.configure(Command.LATENCY_CONFIG, -1, detection_delay, disappearance_delay)
 
-    async def configure_detection_range(self, /, seg_a, seg_b=None, seg_c=None, seg_d=None):
+    async def configure_detection_range(self, /, seg_a, seg_b=None, seg_c=None, seg_d=None) -> ConfigChainResponse:
         """
         Configure the detection range settings of the sensor.
         The change is saved to the sensor's persistent memory.
@@ -1129,15 +1143,14 @@ class SensorAsync:
 
         return await self.configure(Command.DETECTION_RANGE_CONFIG, *([-1] + params))
 
-    @locked
-    async def save_configuration(self):
+    async def save_configuration(self) -> CommandResponse:
         """
         Save the sensor configuration.
 
         Returns:
             CommandResponse: The response to the save configuration command.
         """
-        return await self._send_command(Command.SAVE_CONFIG, *SAVE_CONFIG_PARAMETERS)
+        return await self.send_command(Command.SAVE_CONFIG, *SAVE_CONFIG_PARAMETERS)
 
     async def close(self):
         """
