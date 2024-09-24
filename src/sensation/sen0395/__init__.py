@@ -41,10 +41,11 @@ class Command(Enum):
     SENSOR_START = ("sensorStart", False)
     SENSOR_STOP = ("sensorStop", False)
     RESET_SYSTEM = ("resetSystem", False)
-    LATENCY_CONFIG = ("outputLatency", True)
     GET_LATENCY = ("getLatency", False)
-    DETECTION_RANGE_CONFIG = ("detRangeCfg", True)
+    LATENCY_CONFIG = ("outputLatency", True)
     GET_RANGE = ("getRange", False)
+    DETECTION_RANGE_CONFIG = ("detRangeCfg", True)
+    GET_SENSITIVITY = ("getSensitivity", False)
     SAVE_CONFIG = ("saveCfg", False)
     NONE = ('none', False)
 
@@ -253,6 +254,18 @@ class CommandResponse:
             return None
 
         return self.outputs[-2].message
+
+    @property
+    def response_message(self) -> Optional[str]:
+        msg = self.message
+        if not msg:
+            return None
+
+        parts = msg.split("Response", 1)
+        if len(parts) <= 1:
+            return None
+
+        return parts[1].strip()
 
     @property
     def command_result(self) -> CommandResult:
@@ -746,6 +759,15 @@ class Sensor:
 
         return self.send_command(Command.DETECTION_RANGE_CONFIG, *([-1] + params))
 
+    def get_sensitivity(self) -> CommandResponse:
+        """
+        Get the configured sensitivity (0-9) of the sensor
+
+        Returns:
+            CommandResponse: The response to the `get sensitivity` command.
+        """
+        return self.send_command(Command.GET_SENSITIVITY)
+
     def configure_latency(self, detection_delay, disappearance_delay) -> ConfigChainResponse:
         """
         Configure the latency settings of the sensor.
@@ -1131,6 +1153,15 @@ class SensorAsync:
         range_segments(params)
 
         return await self.send_command(Command.DETECTION_RANGE_CONFIG, *([-1] + params))
+
+    async def get_sensitivity(self) -> CommandResponse:
+        """
+        Get the configured sensitivity (0-9) of the sensor
+
+        Returns:
+            CommandResponse: The response to the `get sensitivity` command.
+        """
+        return await self.send_command(Command.GET_SENSITIVITY)
 
     async def configure_latency(self, detection_delay, disappearance_delay) -> ConfigChainResponse:
         """
