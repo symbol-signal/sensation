@@ -46,6 +46,7 @@ class Command(Enum):
     GET_RANGE = ("getRange", False)
     DETECTION_RANGE_CONFIG = ("detRangeCfg", True)
     GET_SENSITIVITY = ("getSensitivity", False)
+    SET_SENSITIVITY = ("setSensitivity", True)
     SAVE_CONFIG = ("saveCfg", False)
     NONE = ('none', False)
 
@@ -768,6 +769,21 @@ class Sensor:
         """
         return self.send_command(Command.GET_SENSITIVITY)
 
+    def set_sensitivity(self, value) -> CommandResponse:
+        """
+        Set the latency configuration of the sensor.
+
+        Args:
+            value (int): The sensitivity value from 0 to 9 (0 being least sensitive, 9 being most sensitive).
+
+        Returns:
+            CommandResponse: The response to the `set sensitivity` command.
+        """
+        if value < 0 or value > 9:
+            raise ValueError(f"Sensitivity value must be between 0 and 9, got {value}")
+
+        return self.send_command(Command.SET_SENSITIVITY, value)
+
     def configure_latency(self, detection_delay, disappearance_delay) -> ConfigChainResponse:
         """
         Configure the latency settings of the sensor.
@@ -800,6 +816,22 @@ class Sensor:
         range_segments(params)
 
         return self.configure(Command.DETECTION_RANGE_CONFIG, *([-1] + params))
+
+    def configure_sensitivity(self, value) -> ConfigChainResponse:
+        """
+        Configure the sensitivity settings of the sensor.
+        The change is saved to the sensor's persistent memory.
+
+       Args:
+            value (int): The sensitivity value from 0 to 9 (0 being least sensitive, 9 being most sensitive).
+
+        Returns:
+            ConfigChainResponse: The response to the `set sensitivity configuration` command chain.
+        """
+        if value < 0 or value > 9:
+            raise ValueError(f"Sensitivity value must be between 0 and 9, got {value}")
+
+        return self.configure(Command.SET_SENSITIVITY, value)
 
     def save_configuration(self) -> CommandResponse:
         """
@@ -1162,6 +1194,21 @@ class SensorAsync:
             CommandResponse: The response to the `get sensitivity` command.
         """
         return await self.send_command(Command.GET_SENSITIVITY)
+
+    async def set_sensitivity(self, value) -> CommandResponse:
+        """
+        Set the latency configuration of the sensor.
+
+        Args:
+            value (int): The sensitivity value from 0 to 9 (0 being least sensitive, 9 being most sensitive).
+
+        Returns:
+            CommandResponse: The response to the `set sensitivity` command.
+        """
+        if value < 0 or value > 9:
+            raise ValueError(f"Sensitivity value must be between 0 and 9, got {value}")
+
+        return await self.send_command(Command.SET_SENSITIVITY, value)
 
     async def configure_latency(self, detection_delay, disappearance_delay) -> ConfigChainResponse:
         """
