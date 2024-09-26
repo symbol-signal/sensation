@@ -162,7 +162,7 @@ class Output:
 
     def __init__(self, value):
         self.output = value
-        self.presence = is_present(value)
+        self.presence: Optional[bool] = is_present(value)
         self.command_result = parse_command_result(value)
         self.command = parse_command(value)
         if self.command:
@@ -387,15 +387,14 @@ class SensorStatus:
     Attributes:
         sensor_id (SensorId): The unique identifier of the sensor.
         port (str): The serial port to which the sensor is connected.
-        timeout (Optional[int]): The timeout value for serial communication.
         is_reading (bool): Indicates whether this instance is currently reading the sensor data (event notification).
         is_scanning (bool): Indicates whether the sensor is currently scanning.
     """
     sensor_id: SensorId
     port: str
-    timeout: Optional[int]
     is_reading: bool
     is_scanning: bool
+    presence: Optional[bool]
 
     @classmethod
     def deserialize(cls, as_dict):
@@ -411,9 +410,9 @@ class SensorStatus:
         return cls(
             SensorId.deserialize(as_dict["sensor_id"]),
             as_dict["port"],
-            as_dict["timeout"],
             as_dict["is_reading"],
             as_dict["is_scanning"],
+            as_dict["presence"],
         )
 
     def serialize(self):
@@ -426,9 +425,9 @@ class SensorStatus:
         return {
             "sensor_id": self.sensor_id.serialize(),
             "port": self.port,
-            "timeout": self.timeout,
             "is_reading": self.is_reading,
-            "is_scanning": self.is_scanning
+            "is_scanning": self.is_scanning,
+            "presence": self.presence,
         }
 
 
@@ -539,8 +538,9 @@ class Sensor:
             SensorStatus: The status of the sensor.
         """
         is_reading = self._reading_thread is not None
-        is_scanning = self._read_output() is not None
-        return SensorStatus(self.sensor_id, self.serial.port, self.serial.timeout, is_reading, is_scanning)
+        output = self._read_output()
+        presence = output.presence if output else None
+        return SensorStatus(self.sensor_id, self.serial.port, is_reading, presence is not None, presence)
 
     @synchronized
     def clear_buffer(self):
@@ -963,8 +963,9 @@ class SensorAsync:
             SensorStatus: The status of the sensor.
         """
         is_reading = self._reading_task is not None
-        is_scanning = await self._read_output() is not None
-        return SensorStatus(self.sensor_id, self.serial.port, self.serial.timeout, is_reading, is_scanning)
+        output = await self._read_output()
+        presence = output.presence if output else None
+        return SensorStatus(self.sensor_id, self.serial.port, is_reading, presence is not None, presence)
 
     @locked
     async def clear_buffer(self):
