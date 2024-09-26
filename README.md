@@ -18,6 +18,15 @@ The SEN0395 is a millimeter-wave radar motion sensor capable of detecting human 
 
 For more information about the product, refer to the [SEN0395 documentation](https://wiki.dfrobot.com/mmWave_Radar_Human_Presence_Detection_SKU_SEN0395).
 
+#### Commands not implemented yet
+- resetCfg
+- setInhibit/getInhibit
+- setUart/getUart
+- setGpioMode/getGpioMode
+- setEcho/getEcho (disabling echo would likely break the current implementation)
+- setUartOutput/getUartOutput
+- getSWV/getHWV
+
 #### Common Usage Examples
 ##### Sensor Instance (common code for the following examples)
 ```python
