@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from enum import Enum
 from functools import wraps
 from threading import RLock, Thread
-from typing import List, Callable, Optional, Dict, Awaitable, Union
+from typing import List, Callable, Optional, Dict, Awaitable, Union, Tuple
 
 import serial
 from serial.serialutil import SerialException, SerialTimeoutException
@@ -430,6 +430,81 @@ class SensorStatus:
             "presence": self.presence,
         }
 
+@dataclass
+class SensorConfig:
+    """
+    Represents stored configuration of the sensor.
+
+    Attributes:
+        sensor_id (SensorId): The unique identifier of the sensor.
+        port (str): The serial port to which the sensor is connected.
+        timeout (Optional[int]): The timeout value for serial communication.
+        detection_range (Tuple[float, float]): Configured detection range for the 1st segment in meters.
+        output_delay (Tuple[float, float]): The delay times for presence detection and disappearance in seconds.
+        sensitivity (int): The sensitivity setting of the sensor (0-9).
+    """
+    sensor_id: SensorId
+    port: str
+    timeout: Optional[int]
+    detection_range: Tuple[float, float]
+    output_delay: Tuple[float, float]
+    sensitivity: int
+
+    @classmethod
+    def deserialize(cls, as_dict: Dict):
+        """
+        Deserialize a dictionary to a SensorConfig object.
+
+        Args:
+            as_dict (Dict): The serialized data.
+
+        Returns:
+            SensorConfig: The deserialized SensorConfig object.
+        """
+        return cls(
+            sensor_id=SensorId.deserialize(as_dict["sensor_id"]),
+            port=as_dict["port"],
+            timeout=as_dict["timeout"],
+            detection_range=(float(as_dict["detection_range"][0]), float(as_dict["detection_range"][1])),
+            output_delay=(float(as_dict["output_delay"][0]), float(as_dict["output_delay"][1])),
+            sensitivity=as_dict["sensitivity"],
+        )
+
+    def serialize(self) -> Dict:
+        """
+        Serialize the SensorConfig object to a dictionary.
+
+        Returns:
+            Dict: The serialized representation of the SensorConfig.
+        """
+        return {
+            "sensor_id": self.sensor_id.serialize(),
+            "port": self.port,
+            "timeout": self.timeout,
+            "detection_range": self.detection_range,
+            "output_delay": self.output_delay,
+            "sensitivity": self.sensitivity,
+        }
+
+class SensorOperationException(Exception):
+    """
+    Exception raised when an operation consisting of multiple commands cannot be completed due to a problem with
+    one of the commands.
+
+    Attributes:
+        response (CommandResponse): Failed command response
+    """
+
+    def __init__(self, response: CommandResponse, operation: str):
+        self.response = response
+        super().__init__(f"Operation `{operation}` cannot be completed due to failed command: {response}")
+
+class SensorReadConfigException(SensorOperationException):
+
+    def __init__(self, response: CommandResponse):
+        super().__init__(response, 'read config')
+
+
 
 def synchronized(method):
     """
@@ -471,6 +546,24 @@ def range_segments(params):
 
     return segments
 
+
+def _parse_float_pair(s: str) -> Tuple[float, float]:
+    """
+    Parse a string into a tuple of two floats.
+
+    Args:
+        s (str): A string containing two space-separated numbers.
+
+    Returns:
+        Tuple[float, float]: A tuple containing two float values.
+
+    Raises:
+        ValueError: If the input string cannot be correctly parsed into two floats.
+    """
+    values = s.split()
+    if len(values) != 2:
+        raise ValueError(f"Expected two values, got {len(values)} in {s}")
+    return float(values[0]), float(values[1])
 
 class Sensor:
     """
@@ -541,6 +634,40 @@ class Sensor:
         output = self._read_output()
         presence = output.presence if output else None
         return SensorStatus(self.sensor_id, self.serial.port, is_reading, presence is not None, presence)
+
+    def config(self) -> SensorConfig:
+        """
+        Retrieve the current configuration of the sensor.
+
+        This method queries the sensor for its current settings including detection range,
+        latency, and sensitivity. It then constructs and returns a SensorConfig object
+        with these settings.
+
+        Returns:
+            SensorConfig: An object representing the current configuration of the sensor.
+
+        Raises:
+            SensorReadConfigException: If any of the configuration retrieval commands fail
+                                       or return unexpected results.
+        """
+        def success_response_else_raise(get_fnc):
+            resp = get_fnc()
+            if resp.command_result != CommandResult.DONE or not resp.response_message:
+                raise SensorReadConfigException(resp)
+            return resp
+
+        det_range_resp = success_response_else_raise(self.get_detection_range)
+        latency_resp = success_response_else_raise(self.get_latency)
+        sensitivity_resp = success_response_else_raise(self.get_sensitivity)
+
+        return SensorConfig(
+            self.sensor_id,
+            self.serial.port,
+            self.serial.timeout,
+            _parse_float_pair(det_range_resp.response_message),
+            _parse_float_pair(latency_resp.response_message),
+            int(sensitivity_resp.response_message),
+        )
 
     @synchronized
     def clear_buffer(self):
@@ -966,6 +1093,41 @@ class SensorAsync:
         output = await self._read_output()
         presence = output.presence if output else None
         return SensorStatus(self.sensor_id, self.serial.port, is_reading, presence is not None, presence)
+
+    async def config(self) -> SensorConfig:
+        """
+        Retrieve the current configuration of the sensor.
+
+        This method queries the sensor for its current settings including detection range,
+        latency, and sensitivity. It then constructs and returns a SensorConfig object
+        with these settings.
+
+        Returns:
+            SensorConfig: An object representing the current configuration of the sensor.
+
+        Raises:
+            SensorReadConfigException: If any of the configuration retrieval commands fail
+                                       or return unexpected results.
+        """
+        async def success_response_else_raise(get_fnc):
+            resp = await get_fnc()
+            if resp.command_result != CommandResult.DONE or not resp.response_message:
+                raise SensorReadConfigException(resp)
+            return resp
+
+        det_range_resp = await success_response_else_raise(self.get_detection_range)
+        latency_resp = await success_response_else_raise(self.get_latency)
+        sensitivity_resp = await success_response_else_raise(self.get_sensitivity)
+
+        return SensorConfig(
+            self.sensor_id,
+            self.serial.port,
+            self.serial.timeout,
+            _parse_float_pair(det_range_resp.response_message),
+            _parse_float_pair(latency_resp.response_message),
+            int(sensitivity_resp.response_message),
+        )
+
 
     @locked
     async def clear_buffer(self):
