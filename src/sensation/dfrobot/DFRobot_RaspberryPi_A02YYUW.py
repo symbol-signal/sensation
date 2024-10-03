@@ -10,10 +10,12 @@
   @date        2021-08-30
   @url https://github.com/DFRobot/DFRobot_RaspberryPi_A02YYUW
 """
-
-import serial
-
+import asyncio
 import time
+
+
+def _check_sum(l):
+    return (l[0] + l[1] + l[2]) & 0x00ff
 
 
 class DFRobot_A02_Distance:
@@ -36,58 +38,51 @@ class DFRobot_A02_Distance:
     distance_min = 0
     range_max = 4500
 
-    def __init__(self):
+    def __init__(self, serial_con):
         """
           @brief    Sensor initialization.
         """
-        self._ser = serial.Serial("/dev/ttyAMA0", 9600)
-        if self._ser.isOpen() != True:
-            self.last_operate_status = self.STA_ERR_SERIAL
+        self._ser = serial_con
 
-    def set_dis_range(self, min, max):
-        self.distance_max = max
-        self.distance_min = min
+    def set_dis_range(self, min_, max_):
+        self.distance_max = max_
+        self.distance_min = min_
 
-    def getDistance(self):
+    async def measure(self):
         """
           @brief    Get measured distance
           @return    measured distance
         """
-        self._measure()
+        await self._measure()
         return self.distance
 
-    def _check_sum(self, l):
-        return (l[0] + l[1] + l[2]) & 0x00ff
-
-    def _measure(self):
+    async def _measure(self):
         data = [0] * 4
         i = 0
         timenow = time.time()
 
-        while (self._ser.inWaiting() < 4):
-            time.sleep(0.01)
-            if ((time.time() - timenow) > 1):
+        while self._ser.in_waiting < 4:
+            await asyncio.sleep(0.01)
+            if (time.time() - timenow) > 1:
                 break
 
-        rlt = self._ser.read(self._ser.inWaiting())
-        # print(rlt)
+        rlt = await self._ser.read(self._ser.in_waiting)
 
-        index = len(rlt)
-        if (len(rlt) >= 4):
+        if len(rlt) >= 4:
             index = len(rlt) - 4
             while True:
                 try:
                     data[0] = ord(rlt[index])
                 except:
                     data[0] = rlt[index]
-                if (data[0] == 0xFF):
+                if data[0] == 0xFF:
                     break
-                elif (index > 0):
+                elif index > 0:
                     index = index - 1
                 else:
                     break
             # print(data)
-            if (data[0] == 0xFF):
+            if data[0] == 0xFF:
                 try:
                     data[1] = ord(rlt[index + 1])
                     data[2] = ord(rlt[index + 2])
@@ -99,8 +94,8 @@ class DFRobot_A02_Distance:
                 i = 4
         # print(data)
         if i == 4:
-            sum = self._check_sum(data)
-            if sum != data[3]:
+            sum_ = _check_sum(data)
+            if sum_ != data[3]:
                 self.last_operate_status = self.STA_ERR_CHECKSUM
             else:
                 self.distance = data[1] * 256 + data[2]
