@@ -9,6 +9,8 @@
   @version     V1.0
   @date        2021-08-30
   @url https://github.com/DFRobot/DFRobot_RaspberryPi_A02YYUW
+  
+  Note: This version has been updated to asyncio to be used in the `sensation` lib.
 """
 import asyncio
 import time

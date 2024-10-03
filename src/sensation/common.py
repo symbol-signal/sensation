@@ -4,6 +4,7 @@ from enum import Enum
 
 class SensorType(Enum):
 
+    SEN0311 = 'sen0311'
     SEN0395 = 'sen0395'
     UNKNOWN = 'unknown'
 

@@ -1024,12 +1024,12 @@ class PresenceHandlerAsync:
 
 class SensorAsync:
     """
-    Represents the SEN0395 sensor.
+    Represents the SEN0395 mmWave sensor.
 
     Attributes:
         sensor_id (SensorId): The unique identifier of the sensor.
         serial (Serial): The serial connection to the sensor.
-        handlers (List[Callable[[Output], None]]): List of output handlers.
+        handlers (List[Callable[[Output], Awaitable[None]]]): List of output handlers.
     """
 
     def __init__(self, sensor_name, serial_con):
@@ -1042,7 +1042,7 @@ class SensorAsync:
         """
         self.sensor_id = SensorId(SensorType.SEN0395, sensor_name)
         self.serial = serial_con
-        self.handlers: List[Union[Callable[[Output], None], Callable[[Output], Awaitable[None]]]] = []
+        self.handlers: List[Callable[[Output], Awaitable[None]]] = []
         self._lock = asyncio.Lock()
         self._reading_task: Optional[asyncio.Task] = None
 
