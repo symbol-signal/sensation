@@ -1133,21 +1133,6 @@ class SensorAsync:
     async def clear_buffer(self):
         await self.serial.reset_input_buffer()
 
-    def start_reading(self) -> Optional[asyncio.Task]:
-        """
-        Start reading sensor data in a separate thread.
-        When started, the presence handlers periodically receive the current presence value.
-
-        Returns:
-            Optional[asyncio.Task]: The created task if a new one was started, None if a task was already running.
-        """
-        if self._reading_task:
-            return
-
-        self._reading_task = asyncio.create_task(self.read())
-        log.info(f"[reading_started] sensor=[{self.sensor_id}] task=[{self._reading_task}]")
-        return self._reading_task
-
     async def read(self):
         """
         Read sensor data continuously until stopped.
@@ -1169,9 +1154,24 @@ class SensorAsync:
                     except Exception:
                         log.exception(f"[sensor_handler_error] sensor=[{self.sensor_id}] handler=[{handler}]")
 
+    def start_reading(self) -> Optional[asyncio.Task]:
+        """
+        Start reading sensor data in a separate asyncio task.
+        When started, the presence handlers periodically receive the current presence value.
+
+        Returns:
+            Optional[asyncio.Task]: The created task if a new one was started, None if a task was already running.
+        """
+        if self._reading_task:
+            return
+
+        self._reading_task = asyncio.create_task(self.read())
+        log.info(f"[reading_started] sensor=[{self.sensor_id}] task=[{self._reading_task}]")
+        return self._reading_task
+
     async def stop_reading(self):
         """
-        Stop reading sensor data and wait for the reading thread to terminate.
+        Stop reading sensor data and wait for the reading task to terminate.
         When stopped, the presence handlers do not periodically receive the current presence value.
         """
         reading_task = self._reading_task
