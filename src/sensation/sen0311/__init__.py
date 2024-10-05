@@ -2,7 +2,7 @@ import asyncio
 import logging
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import List, Optional, Callable, Awaitable
+from typing import List, Optional, Callable, Awaitable, Union
 
 from serial.serialutil import SerialException
 
@@ -25,6 +25,69 @@ class MeasurementResult:
     status: SensorStatus
     raw_data: List[int]
 
+
+class PresenceHandlerAsync:
+    """
+    Converts distance measurement into a presence value and notifies listeners on the value change.
+
+    Attributes:
+        observers (List[Callable[[bool], Union[None, Awaitable[None]]]]): List of observer callbacks to be notified of presence changes.
+        presence_value (Optional[bool]): The current presence detection value.
+        presence_threshold (int): Distance threshold below which presence is detected.
+        absence_threshold (int): Distance threshold above which absence is detected.
+        hysteresis_count (int): Number of consecutive readings required to change presence state.
+    """
+
+    def __init__(self, presence_threshold: int, absence_threshold: int, hysteresis_count: int = 1):
+        self.observers: List[Callable[[bool], Union[None, Awaitable[None]]]] = []
+        self.presence_value: bool | None = None
+        self.presence_threshold = presence_threshold
+        self.absence_threshold = absence_threshold
+        self.hysteresis_count = hysteresis_count
+        self._consecutive_count = 0
+        self._last_state = None
+
+    async def __call__(self, measurement: MeasurementResult):
+        """
+        Process the sensor measurement, convert to presence and notify observers if presence detection changes.
+
+        Args:
+            measurement (MeasurementResult): The parsed sensor measurement.
+        """
+        if measurement.status is not SensorStatus.OK:
+            return
+
+        current_state = self._determine_presence(measurement.distance)
+
+        if current_state == self._last_state:
+            self._consecutive_count += 1
+        else:
+            self._consecutive_count = 1
+
+        self._last_state = current_state
+
+        if self._consecutive_count >= self.hysteresis_count:
+            if self.presence_value != current_state:
+                self.presence_value = current_state
+                await self._notify_observers()
+
+    def _determine_presence(self, distance: int) -> bool:
+        if distance >= self.absence_threshold:
+            return False
+
+        if distance >= self.presence_threshold:
+            return True
+
+        return self.presence_value if self.presence_value is not None else False
+
+    async def _notify_observers(self):
+        for observer in self.observers:
+            try:
+                result = observer(self.presence_value)
+                if isinstance(result, Awaitable):
+                    await result
+            except Exception as e:
+                log.exception(f"[presence_observer_error] {observer}: {e}")
 
 class SensorAsync:
     """
@@ -58,38 +121,60 @@ class SensorAsync:
     async def _read_data(self) -> Optional[List[int]]:
         async with self._lock:
             try:
-                while True:
-                    if await self._ser.read(1) == b'\xFF':
-                        data = await self._ser.read(3)
-                        if len(data) == 3:
-                            return [0xFF] + list(data)
+                # Set a timeout for waiting for data
+                start_time = asyncio.get_event_loop().time()
+                timeout = 1  # 1-second timeout, adjust as needed
+
+                while self._ser.in_waiting < 4:  # Wait until at least 4 bytes are available or timeout occurs
+                    await asyncio.sleep(0.01)  # Sleep briefly to yield control
+                    if (asyncio.get_event_loop().time() - start_time) > timeout:
+                        return None  # Timeout occurred, no data available
+
+                data_bytes = await self._ser.read(self._ser.in_waiting)  # Read all data in the buffer
+                if not data_bytes:
+                    return None
+
+                data_list = list(data_bytes)
+                index = len(data_list) - 4
+                while index >= 0:  # Search for valid frame starting with the latest data
+                    if data_list[index] == 0xFF:
+                        potential_frame = data_list[index:index + 4]
+                        if len(potential_frame) == 4:
+                            checksum = sum(potential_frame[:3]) & 0xFF
+                            if checksum == potential_frame[3]:
+                                return potential_frame  # Valid frame found
+                    index -= 1
+                return None  # No valid frame found
             except asyncio.TimeoutError:
                 return None
 
-    async def read(self, interval=1.0):
+    async def read(self, sleep_interval=None):
         """
         Read sensor data continuously until stopped.
         Once reading starts, the measurement handlers periodically receive updates.
         """
+        retry_delay = 1
         while True:
             try:
                 measurement = await self.measure()
+                retry_delay = 1
             except SerialException:
                 log.exception(f"[sensor_error] sensor=[{self.sensor_id}]")
-                await asyncio.sleep(5)
+                await asyncio.sleep(retry_delay)
+                retry_delay = min(retry_delay * 2, 60)  # Cap the delay to 60 seconds
                 continue
 
-            if measurement:
-                for handler in self.handlers:
-                    try:
-                        await handler(measurement)
-                    except Exception:
-                        log.exception(f"[sensor_handler_error] sensor=[{self.sensor_id}] handler=[{handler}]")
+            for handler in self.handlers:
+                try:
+                    await handler(measurement)
+                except Exception:
+                    log.exception(f"[sensor_handler_error] sensor=[{self.sensor_id}] handler=[{handler}]")
 
-            await asyncio.sleep(interval)
+            if sleep_interval:
+                await asyncio.sleep(sleep_interval)
 
 
-    def start_reading(self) -> Optional[asyncio.Task]:
+    def start_reading(self, sleep_interval=None) -> Optional[asyncio.Task]:
         """
         Start reading sensor data in a separate asyncio task.
         When started, the handlers periodically receive measurement updates.
@@ -100,7 +185,7 @@ class SensorAsync:
         if self._reading_task:
             return
 
-        self._reading_task = asyncio.create_task(self.read())
+        self._reading_task = asyncio.create_task(self.read(sleep_interval))
         log.info(f"[reading_started] sensor=[{self.sensor_id}] task=[{self._reading_task}]")
         return self._reading_task
 
