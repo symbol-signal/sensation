@@ -205,3 +205,10 @@ class SensorAsync:
                 pass  # This is expected due to the cancellation
             finally:
                 log.info(f"[reading_stopped] sensor=[{self.sensor_id}] task=[{reading_task}]")
+
+    async def close(self):
+        """
+        Close the sensor connection and stop reading.
+        """
+        await self.stop_reading()
+        await self._ser.close()
