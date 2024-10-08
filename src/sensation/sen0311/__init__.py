@@ -11,7 +11,7 @@ from sensation.common import SensorId, SensorType
 log = logging.getLogger(__name__)
 
 
-class SensorStatus(Enum):
+class SensorState(Enum):
     OK = auto()
     ERR_CHECKSUM = auto()
     ERR_SERIAL = auto()
@@ -22,8 +22,87 @@ class SensorStatus(Enum):
 @dataclass
 class MeasurementResult:
     distance: int
-    status: SensorStatus
+    state: SensorState
     raw_data: List[int]
+
+    def serialize(self):
+        """
+        Serialize the MeasurementResult object to a dictionary.
+
+        Returns:
+            Dict: The serialized representation of the MeasurementResult.
+        """
+        return {
+            "distance": self.distance,
+            "state": self.state.name,
+            "raw_data": self.raw_data,
+        }
+
+    @classmethod
+    def deserialize(cls, as_dict):
+        """
+        Deserialize a dictionary to a MeasurementResult object.
+
+        Args:
+            as_dict (Dict): The serialized data.
+
+        Returns:
+            MeasurementResult: The deserialized MeasurementResult object.
+        """
+        return cls(
+            distance=as_dict["distance"],
+            state=SensorState[as_dict["state"]],
+            raw_data=as_dict["raw_data"],
+        )
+
+
+@dataclass
+class SensorStatus:
+    """
+    Represents the status of the sensor.
+
+    Attributes:
+        sensor_id (SensorId): The unique identifier of the sensor.
+        port (str): The serial port to which the sensor is connected.
+        is_reading (bool): Indicates whether this instance is currently reading the sensor data (event notification).
+        measurement (MeasurementResult): Measurement recorded during the get status operation.
+    """
+    sensor_id: SensorId
+    port: str
+    is_reading: bool
+    measurement: MeasurementResult
+
+    @classmethod
+    def deserialize(cls, as_dict):
+        """
+        Deserialize a dictionary to a SensorStatus object.
+
+        Args:
+            as_dict (Dict): The serialized data.
+
+        Returns:
+            SensorStatus: The deserialized SensorStatus object.
+        """
+        return cls(
+            SensorId.deserialize(as_dict["sensor_id"]),
+            as_dict["port"],
+            as_dict["is_reading"],
+            MeasurementResult.deserialize(as_dict["measurement"]),
+        )
+
+    def serialize(self):
+        """
+        Serialize the SensorStatus object to a dictionary.
+
+        Returns:
+            Dict: The serialized representation of the SensorStatus.
+        """
+        return {
+            "sensor_id": self.sensor_id.serialize(),
+            "port": self.port,
+            "is_reading": self.is_reading,
+            "presence": self.measurement.serialize(),
+        }
 
 
 class PresenceHandlerAsync:
@@ -54,7 +133,7 @@ class PresenceHandlerAsync:
         Args:
             measurement (MeasurementResult): The parsed sensor measurement.
         """
-        if measurement.status is not SensorStatus.OK:
+        if measurement.state is not SensorState.OK:
             return
 
         current_state = self._determine_presence(measurement.distance)
@@ -89,10 +168,12 @@ class PresenceHandlerAsync:
             except Exception as e:
                 log.exception(f"[presence_observer_error] {observer}: {e}")
 
+
 class SensorAsync:
     """
     Async implementation of DFRobot A02YYUW ultrasonic distance measurement sensor (SEN0311).
     """
+
     def __init__(self, sensor_name, serial_con, distance_min: int = 0, distance_max: int = 4500):
         self.sensor_id = SensorId(SensorType.SEN0311, sensor_name)
         self.distance_min = distance_min
@@ -105,18 +186,18 @@ class SensorAsync:
     async def measure(self) -> MeasurementResult:
         raw_data = await self._read_data()
         if not raw_data:
-            return MeasurementResult(0, SensorStatus.ERR_NO_DATA, [])
+            return MeasurementResult(0, SensorState.ERR_NO_DATA, [])
 
         checksum = sum(raw_data[:3]) & 0xFF
         if checksum != raw_data[3]:
-            return MeasurementResult(0, SensorStatus.ERR_CHECKSUM, raw_data)
+            return MeasurementResult(0, SensorState.ERR_CHECKSUM, raw_data)
 
         distance = (raw_data[1] << 8) + raw_data[2]
 
         if distance < self.distance_min or distance > self.distance_max:
-            return MeasurementResult(distance, SensorStatus.ERR_OUT_OF_RANGE, raw_data)
+            return MeasurementResult(distance, SensorState.ERR_OUT_OF_RANGE, raw_data)
 
-        return MeasurementResult(distance, SensorStatus.OK, raw_data)
+        return MeasurementResult(distance, SensorState.OK, raw_data)
 
     async def _read_data(self) -> Optional[List[int]]:
         async with self._lock:
@@ -173,7 +254,6 @@ class SensorAsync:
             if sleep_interval:
                 await asyncio.sleep(sleep_interval)
 
-
     def start_reading(self, sleep_interval=None) -> Optional[asyncio.Task]:
         """
         Start reading sensor data in a separate asyncio task.
@@ -205,6 +285,10 @@ class SensorAsync:
                 pass  # This is expected due to the cancellation
             finally:
                 log.info(f"[reading_stopped] sensor=[{self.sensor_id}] task=[{reading_task}]")
+
+    async def status(self):
+        is_reading = self._reading_task is not None
+        return SensorStatus(self.sensor_id, self._ser.port, is_reading, await self.measure())
 
     async def close(self):
         """

@@ -389,6 +389,7 @@ class SensorStatus:
         port (str): The serial port to which the sensor is connected.
         is_reading (bool): Indicates whether this instance is currently reading the sensor data (event notification).
         is_scanning (bool): Indicates whether the sensor is currently scanning.
+        presence (Optional[bool]): The presence value recorded during the get status operation.
     """
     sensor_id: SensorId
     port: str
