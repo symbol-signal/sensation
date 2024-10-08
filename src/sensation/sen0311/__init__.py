@@ -101,7 +101,7 @@ class SensorStatus:
             "sensor_id": self.sensor_id.serialize(),
             "port": self.port,
             "is_reading": self.is_reading,
-            "presence": self.measurement.serialize(),
+            "measurement": self.measurement.serialize(),
         }
 
 
