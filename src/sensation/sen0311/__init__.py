@@ -114,17 +114,24 @@ class PresenceHandlerAsync:
         presence_value (Optional[bool]): The current presence detection value.
         presence_threshold (int): Distance threshold below which presence is detected.
         absence_threshold (int): Distance threshold above which absence is detected.
-        hysteresis_count (int): Number of consecutive readings required to change presence state.
+        hysteresis_count (int, optional): Number of consecutive readings required to change presence state. Defaults to 1.
+        delay_in (float, optional): Delay in seconds before confirming a presence detection. Defaults to 0.0.
+        delay_out (float, optional): Delay in seconds before confirming an absence detection. Defaults to 0.0.
     """
 
-    def __init__(self, presence_threshold: int, absence_threshold: int, hysteresis_count: int = 1):
+    def __init__(self, *,
+                 presence_threshold: int, absence_threshold: int,
+                 hysteresis_count = 1,
+                 delay_in = 0.0, delay_out = 0.0):
         self.observers: List[Callable[[bool], Union[None, Awaitable[None]]]] = []
         self.presence_value: bool | None = None
         self.presence_threshold = presence_threshold
         self.absence_threshold = absence_threshold
         self.hysteresis_count = hysteresis_count
+        self.delay_in = delay_in
+        self.delay_out = delay_out
         self._consecutive_count = 0
-        self._last_state = None
+        self._last_presence = None
 
     async def __call__(self, measurement: MeasurementResult):
         """
@@ -136,18 +143,18 @@ class PresenceHandlerAsync:
         if measurement.state is not SensorState.OK:
             return
 
-        current_state = self._determine_presence(measurement.distance)
+        new_presence = self._determine_presence(measurement.distance)
 
-        if current_state == self._last_state:
+        if new_presence == self._last_presence:
             self._consecutive_count += 1
         else:
             self._consecutive_count = 1
 
-        self._last_state = current_state
+        self._last_presence = new_presence
 
         if self._consecutive_count >= self.hysteresis_count:
-            if self.presence_value != current_state:
-                self.presence_value = current_state
+            if self.presence_value != new_presence:
+                self.presence_value = new_presence
                 await self._notify_observers()
 
     def _determine_presence(self, distance: int) -> bool:
