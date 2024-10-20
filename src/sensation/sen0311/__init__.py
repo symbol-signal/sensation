@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from asyncio import Task
 from dataclasses import dataclass
 from enum import Enum, auto
 from typing import List, Optional, Callable, Awaitable, Union
@@ -132,6 +133,40 @@ class PresenceHandlerAsync:
         self.delay_out = delay_out
         self._consecutive_count = 0
         self._last_presence = None
+        self._change_task: Optional['PresenceHandlerAsync.ChangePresenceTask'] = None
+
+    class ChangePresenceTask:
+
+        def __init__(self, handler: 'PresenceHandlerAsync', new_value):
+            self.handler = handler
+            self.new_value = new_value
+            self.task_instance: Optional[Task] = None
+            self.executed = False
+
+        def resolve_delay(self):
+            if self.new_value:
+                return self.handler.delay_in
+
+            return self.handler.delay_out
+
+        def __call__(self):
+            self.task_instance = asyncio.create_task(self.run())
+
+        async def run(self):
+            if delay := self.resolve_delay():
+                await asyncio.sleep(delay)
+
+            self.executed = True
+            # Cannot be cancelled after this point to prevent observers in inconsistent state
+
+            await self.handler._change_presence(self.new_value)
+
+            if self.handler._change_task == self:
+                self.handler._change_task = None
+
+        def cancel(self):
+            if self.task_instance and not self.executed:
+                self.task_instance.cancel()
 
     async def __call__(self, measurement: MeasurementResult):
         """
@@ -153,9 +188,15 @@ class PresenceHandlerAsync:
         self._last_presence = new_presence
 
         if self._consecutive_count >= self.hysteresis_count:
-            if self.presence_value != new_presence:
-                self.presence_value = new_presence
-                await self._notify_observers()
+            if self._change_task:
+                if self._change_task.new_value == new_presence:
+                    return
+                self._change_task.cancel()
+            elif self.presence_value == new_presence:
+                return
+
+            self._change_task = self.ChangePresenceTask(self, new_presence)
+            self._change_task()
 
     def _determine_presence(self, distance: int) -> bool:
         if distance >= self.absence_threshold:
@@ -165,6 +206,11 @@ class PresenceHandlerAsync:
             return True
 
         return self.presence_value if self.presence_value is not None else False
+
+    async def _change_presence(self, new_presence):
+        if self.presence_value != new_presence:
+            self.presence_value = new_presence
+            await self._notify_observers()
 
     async def _notify_observers(self):
         for observer in self.observers:
