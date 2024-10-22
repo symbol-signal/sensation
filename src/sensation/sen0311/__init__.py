@@ -116,21 +116,21 @@ class PresenceHandlerAsync:
         presence_threshold (int): Distance threshold below which presence is detected.
         absence_threshold (int): Distance threshold above which absence is detected.
         hysteresis_count (int, optional): Number of consecutive readings required to change presence state. Defaults to 1.
-        delay_in (float, optional): Delay in seconds before confirming a presence detection. Defaults to 0.0.
-        delay_out (float, optional): Delay in seconds before confirming an absence detection. Defaults to 0.0.
+        delay_presence (float, optional): Delay in seconds before confirming a presence detection. Defaults to 0.0.
+        delay_absence (float, optional): Delay in seconds before confirming an absence detection. Defaults to 0.0.
     """
 
     def __init__(self, *,
-                 presence_threshold: int, absence_threshold: int,
+                 threshold_presence: int, threshold_absence: int,
                  hysteresis_count = 1,
-                 delay_in = 0.0, delay_out = 0.0):
+                 delay_presence = 0.0, delay_absence = 0.0):
         self.observers: List[Callable[[bool], Union[None, Awaitable[None]]]] = []
         self.presence_value: bool | None = None
-        self.presence_threshold = presence_threshold
-        self.absence_threshold = absence_threshold
+        self.presence_threshold = threshold_presence
+        self.absence_threshold = threshold_absence
         self.hysteresis_count = hysteresis_count
-        self.delay_in = delay_in
-        self.delay_out = delay_out
+        self.delay_presence = delay_presence
+        self.delay_absence = delay_absence
         self._consecutive_count = 0
         self._last_presence = None
         self._change_task: Optional['PresenceHandlerAsync.ChangePresenceTask'] = None
@@ -145,9 +145,9 @@ class PresenceHandlerAsync:
 
         def resolve_delay(self):
             if self.new_value:
-                return self.handler.delay_in
+                return self.handler.delay_presence
 
-            return self.handler.delay_out
+            return self.handler.delay_absence
 
         def __call__(self):
             self.task_instance = asyncio.create_task(self.run())
