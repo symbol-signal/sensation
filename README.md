@@ -135,3 +135,79 @@ sensor.start_scanning()
 # CommandResponse(outputs=[sensorStart, Done])
 #SensorStatus(sensor_id=SensorId(sensor_type=<SensorType.SEN0395: 'sen0395'>, sensor_name='sensor_name'), port='/dev/ttyAMA0', timeout=1, is_reading=False, is_scanning=True)
 ```
+
+### SEN0311
+
+The SEN0311 is an ultrasonic distance measurement sensor that can be used to detect presence by measuring the distance to objects.
+
+| <!-- -->          | <!-- -->                                                          |
+|-------------------|-------------------------------------------------------------------|
+| Code              | SEN0311                                                           |
+| Brand             | DFRobot                                                           |
+| Type              | Ultrasonic distance measurement sensor                            |
+| Name              | A02YYUW Waterproof Ultrasonic Sensor                             |
+| Python Package    | [sensation.sen0311](src/sensation/sen0311/__init__.py)            |
+| Product URL       | [DFRobot Ultrasonic Sensor](https://www.dfrobot.com/product-1935.html) |
+
+#### Common Usage Examples
+##### Sensor Instance (Async)
+```python
+import serialio
+from sensation.sen0311 import SensorAsync
+
+async def example():
+    serial_con = serialio.serial_for_url("serial:///dev/ttyAMA1", 9600)
+    sensor = SensorAsync("my_sensor", serial_con, distance_min=0, distance_max=4500)
+    await serial_con.open()
+    
+    status = await sensor.status()  # Check if the sensor is working properly
+    
+    # >> DO YOUR OWN THINGS HERE <<
+    
+    await sensor.close()  # This closes the serial connection instance
+```
+
+##### Distance Measurement
+```python
+# Perform a single measurement
+measurement = await sensor.measure()
+print(f"Distance: {measurement.distance}mm, State: {measurement.state}")
+
+# Start continuous measurement with 0.5 second interval
+sensor.start_reading(sleep_interval=0.5)
+
+# Stop continuous measurement
+await sensor.stop_reading()
+```
+
+##### Presence Detection with Thresholds
+```python
+# Create a presence handler with custom thresholds
+handler = PresenceHandlerAsync(
+    threshold_presence=1000,   # Consider present when distance < 1000mm
+    threshold_absence=1500,    # Consider absent when distance > 1500mm
+    hysteresis_count=3,        # Require 3 consecutive readings to change state
+    delay_presence=0.0,        # No delay when detecting presence
+    delay_absence=5.0,         # 5 second delay before confirming absence
+)
+
+# Add observer to handle presence changes (supports both sync and async callbacks)
+handler.observers.append(lambda presence: print(f"Presence changed: {presence}"))
+
+# Add async observer
+async def async_observer(presence):
+    print(f"Async presence notification: {presence}")
+    # Do async operations here
+    
+handler.observers.append(async_observer)
+
+# Add the handler to the sensor
+sensor.handlers.append(handler)
+
+# Start reading with 0.2 second interval
+sensor.start_reading(sleep_interval=0.2)
+```
+
+The SEN0311 sensor can detect distances from a few centimeters to about 4.5 meters, making it suitable 
+for various presence detection applications where ultrasonic technology is appropriate, 
+such as detecting people or objects in enclosed spaces.
