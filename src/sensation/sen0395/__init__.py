@@ -753,7 +753,8 @@ class Sensor:
         cmd_str = cmd.value + (" " if params else "") + " ".join(map(str, params))
         self.clear_buffer()  # Clear the input buffer to remove any stale data
         self.serial.write((cmd_str + '\n').encode('utf-8'))
-        self.serial.flush()
+        if hasattr(self.serial, 'flush'):  # Serial over raw TCP doesn't support flush
+            self.serial.flush()
 
         term_tries = 0
         confirmed = False
@@ -1050,7 +1051,10 @@ class SensorAsync:
     async def _wait_for_data(self) -> bool:
         wait_count = 0
         while wait_count < 6:
-            if self.serial.in_waiting:
+            in_wait = self.serial.in_waiting
+            if callable(in_wait):  # sockio.aio.TCP has in_waiting as method
+                in_wait = in_wait()
+            if in_wait:
                 return True
             else:
                 wait_count += 1
@@ -1216,7 +1220,8 @@ class SensorAsync:
         cmd_str = cmd.value + (" " if params else "") + " ".join(map(str, params))
         await self.serial.reset_input_buffer()  # Clear the input buffer to remove any stale data
         await self.serial.write((cmd_str + '\n').encode('utf-8'))
-        await self.serial.flush()
+        if hasattr(self.serial, 'flush'):
+            await self.serial.flush()
 
         term_tries = 0
         confirmed = False
