@@ -73,6 +73,7 @@ class RemoteSMBus:
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.socket.settimeout(self.timeout)
         self.socket.connect((self.host, self.port))
+        self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
     
     def _send_command(self, cmd: int, addr: int, reg: int = 0, data: bytes = b'') -> bytes:
         """
