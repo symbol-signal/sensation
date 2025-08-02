@@ -6,6 +6,7 @@ class SensorType(Enum):
 
     SEN0311 = 'sen0311'
     SEN0395 = 'sen0395'
+    LD2410C = 'ld2410c'
     UNKNOWN = 'unknown'
 
     @classmethod
